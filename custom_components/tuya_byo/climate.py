@@ -103,6 +103,20 @@ SWEEP_VALUE_TO_LABEL = {
 }
 SWEEP_LABEL_TO_VALUE = {v: k for k, v in SWEEP_VALUE_TO_LABEL.items()}
 
+# "up_down_freeze" (vertical swing fixed/parked position, separate from the
+# sweep on/off state above) -- folded into the same climate swing_mode list
+# instead of a separate select entity, per user request. "0"/Sin fijar is
+# intentionally left out here: it's represented by the shared "Apagado" entry
+# built in _build_swing_modes() so there's only one "off" option, not two.
+FREEZE_VALUE_TO_LABEL = {
+    "1": "Fijo: Arriba",
+    "2": "Fijo: Zona superior",
+    "3": "Fijo: Zona media",
+    "4": "Fijo: Zona inferior",
+    "5": "Fijo: Abajo",
+}
+FREEZE_LABEL_TO_VALUE = {v: k for k, v in FREEZE_VALUE_TO_LABEL.items()}
+
 # "sleep" DP values, seen on Gree/Midea-derived Tuya AC modules: a sleep
 # temperature curve selector, not a plain on/off. Fairly standard/well-known
 # convention, but still worth confirming against the physical unit.
@@ -198,6 +212,11 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
             "air_flow",
             "up_down_sweep",
         )
+        # "up_down_freeze" (vertical swing fixed/parked position) folded into
+        # the same swing_mode control as the sweep DP above, instead of a
+        # separate select entity, so both live where the user is already
+        # operating the AC.
+        self.dp_swing_freeze = coordinator.find_dp("up_down_freeze")
         # "sleep" (temperature-curve selector, not on/off) surfaces inside the
         # climate card as a preset instead of a separate select entity, so
         # it's visible while actually operating the AC.
@@ -211,7 +230,7 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
         # this in Settings > System > Logs if a control is missing/wrong.
         _LOGGER.debug(
             "%s: dp_switch=%s dp_mode=%s dp_target=%s dp_current=%s "
-            "dp_fan_mode=%s dp_swing=%s dp_sleep=%s raw_mapping=%s raw_data=%s",
+            "dp_fan_mode=%s dp_swing=%s dp_swing_freeze=%s dp_sleep=%s raw_mapping=%s raw_data=%s",
             coordinator.name,
             self.dp_switch,
             self.dp_mode,
@@ -219,6 +238,7 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
             self.dp_current,
             self.dp_fan_mode,
             self.dp_swing,
+            self.dp_swing_freeze,
             self.dp_sleep,
             coordinator.mapping,
             coordinator.data,
@@ -361,36 +381,92 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
             return SWEEP_LABEL_TO_VALUE, SWEEP_VALUE_TO_LABEL
         return SWING_LABEL_TO_VALUE, SWING_VALUE_TO_LABEL
 
-    def _build_swing_modes(self):
-        if not self.dp_swing:
-            return None
-        meta = self.coordinator.mapping.get(self.dp_swing, {})
+    def _swing_is_bool(self) -> bool:
+        meta = self.coordinator.mapping.get(self.dp_swing, {}) if self.dp_swing else {}
+        return str(meta.get("type", "")).lower() in {"boolean", "bool"}
+
+    def _freeze_options(self) -> list[str]:
+        if not self.dp_swing_freeze:
+            return []
+        meta = self.coordinator.mapping.get(self.dp_swing_freeze, {})
         values = meta.get("values", {}) if isinstance(meta, dict) else {}
-        options = []
+        rng = []
         if isinstance(values, dict):
-            rng = values.get("range") or values.get("options")
-            if isinstance(rng, list):
-                options = [str(v) for v in rng]
-        if str(meta.get("type", "")).lower() in {"boolean", "bool"} or not options:
-            # Boolean DP (or range unknown): a plain on/off toggle is all the
-            # device actually supports -- presenting the full 8-position list
-            # here would let the user pick a position the device will ignore
-            # or reject.
-            return ["Apagado", "Swing vertical"]
-        _, value_to_label = self._swing_tables()
-        return [value_to_label.get(str(v), str(v)) for v in options]
+            r = values.get("range") or values.get("options")
+            if isinstance(r, list):
+                rng = [str(v) for v in r]
+        return [str(v) for v in rng]
+
+    def _build_swing_modes(self):
+        if not self.dp_swing and not self.dp_swing_freeze:
+            return None
+        options = ["Apagado"]
+        if self.dp_swing:
+            meta = self.coordinator.mapping.get(self.dp_swing, {})
+            values = meta.get("values", {}) if isinstance(meta, dict) else {}
+            rng = []
+            if isinstance(values, dict):
+                r = values.get("range") or values.get("options")
+                if isinstance(r, list):
+                    rng = [str(v) for v in r]
+            if self._swing_is_bool() or not rng:
+                # Boolean DP (or range unknown): a plain on/off toggle is all
+                # the device actually supports -- presenting the full
+                # multi-position list here would let the user pick a position
+                # the device will ignore or reject.
+                if "Swing vertical" not in options:
+                    options.append("Swing vertical")
+            else:
+                _, value_to_label = self._swing_tables()
+                for v in rng:
+                    if str(v) == "0":
+                        continue  # already covered by the shared "Apagado" entry
+                    label = value_to_label.get(str(v), str(v))
+                    if label not in options:
+                        options.append(label)
+        # Fold the fixed/parked position DP into the same list ("Fijo: ...").
+        for v in self._freeze_options():
+            if v == "0":
+                continue  # "sin fijar" -- already covered by "Apagado"
+            label = FREEZE_VALUE_TO_LABEL.get(v)
+            if label and label not in options:
+                options.append(label)
+        return options
 
     @property
     def swing_mode(self):
-        if not self.dp_swing:
+        if not self.dp_swing and not self.dp_swing_freeze:
             return None
-        value = self.coordinator.get_dp_value(self.dp_swing)
-        if isinstance(value, bool):
-            return "Swing vertical" if value else "Apagado"
-        _, value_to_label = self._swing_tables()
-        return value_to_label.get(str(value), str(value)) if value is not None else "Apagado"
+        if self.dp_swing:
+            value = self.coordinator.get_dp_value(self.dp_swing)
+            if isinstance(value, bool):
+                if value:
+                    return "Swing vertical"
+            elif value is not None and str(value) != "0":
+                _, value_to_label = self._swing_tables()
+                return value_to_label.get(str(value), str(value))
+        if self.dp_swing_freeze:
+            value = self.coordinator.get_dp_value(self.dp_swing_freeze)
+            if value is not None and str(value) != "0":
+                return FREEZE_VALUE_TO_LABEL.get(str(value), str(value))
+        return "Apagado"
 
     async def async_set_swing_mode(self, swing_mode: str):
+        if not self.dp_swing and not self.dp_swing_freeze:
+            return
+        if swing_mode in FREEZE_LABEL_TO_VALUE or swing_mode == "Apagado":
+            # A fixed position (or turning everything off) implies the sweep
+            # should stop, and vice versa -- write both DPs together in one
+            # command so the device doesn't briefly show a contradictory state.
+            values: dict[str, Any] = {}
+            if self.dp_swing:
+                values[self.dp_swing] = False if self._swing_is_bool() else "0"
+            if self.dp_swing_freeze:
+                values[self.dp_swing_freeze] = FREEZE_LABEL_TO_VALUE.get(swing_mode, "0")
+            if values:
+                await self.coordinator.async_set_dps(values)
+            return
+        # A sweep/vaivén option -- only the sweep DP is relevant.
         if not self.dp_swing:
             return
         current = self.coordinator.get_dp_value(self.dp_swing)

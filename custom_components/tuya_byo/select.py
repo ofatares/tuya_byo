@@ -19,39 +19,57 @@ LABELS = {
     "wind_speed": "velocidad ventilador",
     "fresh_air": "aire fresco",
     "energy": "nivel eco",
-    "up_down_freeze": "swing vertical (posición fija)",
 }
 
 ICONS = {
     "fresh_air": "mdi:air-filter",
     "energy": "mdi:leaf",
-    "up_down_freeze": "mdi:arrow-up-down-bold-outline",
     "fan_speed_enum": "mdi:fan",
     "fan_mode": "mdi:fan",
     "wind_speed": "mdi:fan",
+    "work_mode": "mdi:palette",
+    "fan_direction": "mdi:rotate-3d-variant",
 }
 
 # Per-code raw-value -> Spanish label overrides, for DPs whose options are
 # plain numbers/codes with no human meaning published by Tuya. Best-effort
 # inferred from the equivalent named options in Tuya's own app; verify
 # against the physical unit before trusting a specific position.
-VALUE_LABELS: dict[str, dict[str, str]] = {
-    "up_down_freeze": {
-        "0": "Sin fijar",
-        "1": "Arriba",
-        "2": "Zona superior",
-        "3": "Zona media",
-        "4": "Zona inferior",
-        "5": "Abajo",
-    },
+VALUE_LABELS: dict[str, dict[str, str]] = {}
+
+# Generic raw-value -> Spanish fallback, applied to any select entity whose
+# code isn't in VALUE_LABELS above. Tuya's Cloud API returns enum options in
+# English regardless of the account's locale, which is why plain selects
+# (aire fresco, nivel eco, dirección del ventilador, modo de la luz...) showed
+# a mix of Spanish entity names with English option values.
+GENERIC_VALUE_LABELS: dict[str, str] = {
+    "off": "Apagado",
+    "on": "Encendido",
+    "auto": "Automático",
+    "low": "Bajo",
+    "mid": "Medio",
+    "middle": "Medio",
+    "medium": "Medio",
+    "high": "Alto",
+    "forward": "Hacia adelante",
+    "reverse": "Hacia atrás",
+    "white": "Blanco",
+    "colour": "Color",
+    "color": "Color",
+    "scene": "Escena",
+    "music": "Música",
+    "l1": "Nivel 1",
+    "l2": "Nivel 2",
+    "l3": "Nivel 3",
 }
 
-# "up_down_sweep" (vertical swing) and "sleep" are wired directly into the
-# climate entity (native swing_mode / preset_mode, see climate.py), so they're
-# excluded here to avoid a duplicate entity for the same DP.
+# "up_down_sweep"/"up_down_freeze" (vertical swing sweep + fixed position) and
+# "sleep" are wired directly into the climate entity (native swing_mode /
+# preset_mode, see climate.py), so they're excluded here to avoid a duplicate
+# entity for the same DP.
 CLIMATE_OWNED_CODES = {
     DP_MODE, "fan_speed", "fan_speed_enum", "fan_mode", "wind_speed", "windspeed",
-    "up_down_sweep", "sleep",
+    "up_down_sweep", "up_down_freeze", "sleep",
 }
 
 # Internal/administrative or non-functional-on-these-models DPs that aren't
@@ -93,7 +111,13 @@ class TuyaBYOSelect(CoordinatorEntity, SelectEntity):
         super().__init__(coordinator)
         self.dp = dp
         self.code = code
-        self._value_to_label = VALUE_LABELS.get(code, {})
+        specific = VALUE_LABELS.get(code, {})
+        self._value_to_label: dict[str, str] = {}
+        for value in options:
+            if value in specific:
+                self._value_to_label[value] = specific[value]
+            elif value.lower() in GENERIC_VALUE_LABELS:
+                self._value_to_label[value] = GENERIC_VALUE_LABELS[value.lower()]
         self._label_to_value = {v: k for k, v in self._value_to_label.items()}
         self._attr_options = [self._value_to_label.get(o, o) for o in options]
         self._attr_unique_id = f"{coordinator.device_id}_{dp}_select"

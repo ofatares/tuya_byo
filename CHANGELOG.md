@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.30.0
+
+- Add: `up_down_freeze` (vertical swing fixed/parked position) is now folded into the climate entity's native `swing_mode` alongside the sweep DP, instead of a separate select entity -- one control ("Apagado", "Vaivén completo", ..., "Fijo: Arriba", "Fijo: Zona superior", ...) visible right where the AC is already being operated. Picking a fixed position now writes both DPs together (sweep off + position set) so the unit doesn't briefly show a contradictory state.
+- Fix: several select/switch entities showed a mix of Spanish entity names with raw English option values or labels (e.g. "aire fresco: off", "nivel eco: off/L1/L2/L3", "fan_beep" switch labelled literally "beep"/"mute"/"display"/"health"). Added a generic English->Spanish value translation for common Tuya enum options (off/on/auto/low/mid/high/forward/reverse/white/colour/scene/music/L1-L3) applied to every select entity, and translated the remaining literal-English switch labels.
+- Note: several rows shown as "unavailable" in existing Lovelace cards (airquality, kwh, money, style, modo sleep, swing horizontal, unidad temperatura, wind) are references to entities that no longer exist -- they were hidden or moved into the climate card in earlier versions (0.27.0-0.29.0). This is a dashboard cleanup (remove those rows from the card), not something fixable from the integration's code.
+
 ## 0.29.0
 
 - Add: the ceiling fan's light now supports color-temperature control (warm-to-cool slider), matching the original Tuya app -- it's not dimmable in intensity on this device, only in color temperature. Wired to `temp_value` (falls back to `colour_temp`/`color_temp` aliases), reading the real min/max range from the resolved DP's own metadata. Tuya doesn't publish actual Kelvin bounds for this range (just a relative 0..max integer), so it's mapped onto the conventional 2700K-6500K warm/cool endpoints used by most tunable-white products.

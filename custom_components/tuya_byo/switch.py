@@ -28,19 +28,19 @@ SWITCH_CODE_HINTS = (
 )
 
 LABELS = {
-    "fan_beep": "beep",
-    "beep": "beep",
+    "fan_beep": "pitido ventilador",
+    "beep": "pitido",
     "switch_sleep": "sleep",
     "sleep": "sleep",
     "quiet_sleep": "sleep",
-    "mute": "mute",
-    "switch_mute": "mute",
-    "display": "display",
-    "switch_display": "display",
+    "mute": "silencio",
+    "switch_mute": "silencio",
+    "display": "pantalla",
+    "switch_display": "pantalla",
     "led": "led",
     "switch_led": "luz",
     "screen": "pantalla",
-    "panel": "display",
+    "panel": "pantalla",
     "eco": "eco",
     "energy": "eco",
     "turbo": "turbo",
@@ -55,8 +55,13 @@ LABELS = {
     "self_clean": "autolimpieza",
     "clean": "limpieza",
     "anion": "ionizador",
-    "health": "health",
+    "health": "salud",
     "child_lock": "bloqueo infantil",
+    "fresh_air_filter": "filtro aire fresco",
+    "freshair_filter": "filtro aire fresco",
+    "fresh_filter": "filtro aire fresco",
+    "filter_reset": "reset filtro",
+    "filter": "filtro",
 }
 
 
