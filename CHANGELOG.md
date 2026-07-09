@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.31.0
+
+- Add: bundled a `custom_components/tuya_byo/brand/` folder with `icon.png`/`icon@2x.png` (square badge) and `logo.png`/`logo@2x.png` (badge + wordmark), cropped and resized from the project's existing artwork to meet Home Assistant's brand image spec (square 256/512 icon, landscape logo capped at 256/512px on the short side, transparent background). Since HA 2026.3, custom integrations can ship these locally and HA's own `brands` system integration serves them automatically in Settings > Devices & Services (both the "Add integration" search and the configured integration's card) -- no PR to the external home-assistant/brands repository needed. Requires the user's HA Core to be 2026.3.0 or newer; on older Core versions this silently has no effect (falls back to the generic icon, no error).
+
 ## 0.30.1
 
 - Fix: `_looks_success()` (used to decide whether a local write actually landed, and which write path to prefer next time) fell through to `return True` for any dict response it didn't specifically recognise -- including an explicit `{"success": false}` or `{"result": false}` from the device rejecting the command. This meant a rejected write could still be reported as successful, HA would show the new state optimistically, and the physical unit would silently stay unchanged. Added explicit checks for `success`/`result` being `False`, ahead of the permissive fallback. The fallback itself is intentionally left permissive (still defaults to success for unrecognised dict shapes) because some working writes return a bare DPS echo (e.g. `{"20": true}`) with no `success`/`dps`/`devId` key at all -- switching to fail-closed there would have flagged known-good writes as failures.
