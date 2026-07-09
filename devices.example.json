@@ -1,0 +1,18 @@
+[
+  {
+    "name": "Example fan",
+    "id": "xxxxxxxxxxxxxxxxxxxxxx",
+    "key": "xxxxxxxxxxxxxxxx",
+    "ip": "192.168.1.50",
+    "version": "3.5",
+    "category": "fsd",
+    "product_name": "ceiling fan/Light v2",
+    "product_id": "example",
+    "mapping": {
+      "20": {"code": "switch_led", "type": "Boolean", "values": {}},
+      "60": {"code": "fan_switch", "type": "Boolean", "values": {}},
+      "62": {"code": "fan_speed", "type": "Integer", "values": {"min": 1, "max": 6}},
+      "63": {"code": "fan_direction", "type": "Enum", "values": {"range": ["forward", "reverse"]}}
+    }
+  }
+]
