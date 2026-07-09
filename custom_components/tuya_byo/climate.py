@@ -343,10 +343,17 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
                 await self.coordinator.async_set_dp(self.dp_switch, False)
             return
 
+        # Turning on with a target mode used to be two sequential writes
+        # (switch, then mode), each opening its own connection and forcing its
+        # own status refresh -- roughly double the round-trip time it takes to
+        # turn the unit on. Batch both DPs into a single local command instead.
+        values: dict[str, Any] = {}
         if self.dp_switch:
-            await self.coordinator.async_set_dp(self.dp_switch, True)
+            values[self.dp_switch] = True
         if self.dp_mode and hvac_mode in HVAC_TO_MODE:
-            await self.coordinator.async_set_dp(self.dp_mode, HVAC_TO_MODE[hvac_mode])
+            values[self.dp_mode] = HVAC_TO_MODE[hvac_mode]
+        if values:
+            await self.coordinator.async_set_dps(values)
 
     async def async_set_temperature(self, **kwargs):
         if ATTR_TEMPERATURE not in kwargs or not self.dp_target:

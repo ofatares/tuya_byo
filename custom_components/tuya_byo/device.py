@@ -86,12 +86,15 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
         return True
 
     def _set_dp_sync(self, dp: str | int, value: Any):
-        """Write a DP using all safe TinyTuya command paths.
+        """Write a single DP using all safe TinyTuya command paths.
 
         Different Tuya firmwares react differently to TinyTuya helpers. For HVAC
         devices in particular, set_status() can be ignored on some modules while
         set_value() works, or vice versa. We try the most direct command path and
-        fall back without raising until all paths fail.
+        fall back without raising until all paths fail. A short pause between
+        fallback attempts avoids hammering the module's local socket handler with
+        back-to-back reconnects, which on some firmwares makes things worse
+        (slower responses, or the device briefly refusing new connections).
         """
         dp_int = int(dp)
         errors: list[str] = []
@@ -105,6 +108,7 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
             errors.append(f"set_status returned {result!r}")
         except Exception as ex:  # noqa: BLE001
             errors.append(f"set_status failed: {ex}")
+        time.sleep(0.3)
 
         # Path 2: TinyTuya value command.
         try:
@@ -115,6 +119,7 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
             errors.append(f"set_value returned {result!r}")
         except Exception as ex:  # noqa: BLE001
             errors.append(f"set_value failed: {ex}")
+        time.sleep(0.3)
 
         # Path 3: multi-value command if present in this TinyTuya version.
         try:
@@ -129,20 +134,55 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
 
         raise RuntimeError("; ".join(errors))
 
-    async def _async_update_data(self) -> dict[str, Any]:
+    def _set_dps_sync(self, values: dict[int, Any]):
+        """Write several DPs in a single local command when possible.
+
+        Sending one combined command instead of N sequential ones (each with its
+        own reconnect + status refresh) is both faster and gentler on the module.
+        Falls back to writing DPs one by one only if the device/tinytuya version
+        can't do a multi-value write.
+        """
         try:
-            async with self._lock:
-                status = await self.hass.async_add_executor_job(self._status_sync)
-            dps = status.get("dps", status) if isinstance(status, dict) else {}
-            data = {str(k): v for k, v in (dps or {}).items()}
-            self._enhance_mapping_from_cloud(data)
-            return data
+            dev = self._make_device_sync()
+            if hasattr(dev, "set_multiple_values"):
+                result = dev.set_multiple_values(values)
+                if self._looks_success(result):
+                    return result
         except Exception as ex:  # noqa: BLE001
-            raise UpdateFailed(str(ex)) from ex
+            _LOGGER.debug("set_multiple_values failed, falling back to per-DP writes: %s", ex)
+
+        last_result = None
+        for dp_int, value in values.items():
+            last_result = self._set_dp_sync(dp_int, value)
+        return last_result
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        last_ex: Exception | None = None
+        for attempt in range(2):
+            try:
+                async with self._lock:
+                    status = await self.hass.async_add_executor_job(self._status_sync)
+                dps = status.get("dps", status) if isinstance(status, dict) else {}
+                data = {str(k): v for k, v in (dps or {}).items()}
+                self._enhance_mapping_from_cloud(data)
+                return data
+            except Exception as ex:  # noqa: BLE001
+                last_ex = ex
+                if attempt == 0:
+                    # One quick retry before giving up: local Tuya sockets
+                    # occasionally refuse back-to-back connections, and a
+                    # single retry avoids flapping the entity to unavailable.
+                    await asyncio.sleep(1.0)
+        raise UpdateFailed(str(last_ex)) from last_ex
 
     async def async_set_dp(self, dp: str | int, value: Any) -> None:
+        await self.async_set_dps({dp: value})
+
+    async def async_set_dps(self, values: dict[str | int, Any]) -> None:
+        """Write multiple DPs in one local command and refresh state once."""
+        int_values = {int(dp): value for dp, value in values.items()}
         async with self._lock:
-            await self.hass.async_add_executor_job(self._set_dp_sync, dp, value)
+            await self.hass.async_add_executor_job(self._set_dps_sync, int_values)
             # Force a fresh status read immediately after writing.
             status = await self.hass.async_add_executor_job(self._status_sync)
         dps = status.get("dps", status) if isinstance(status, dict) else {}

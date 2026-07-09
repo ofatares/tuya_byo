@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.23.0
+
+- Perf: turning the unit on with a specific HVAC mode used to issue two sequential local writes (power DP, then mode DP), each opening its own connection and forcing its own status refresh — roughly doubling how long "turn on" takes compared to a single-DP write. Added `TuyaBYODevice.async_set_dps()` to batch both DPs into one local command with a single status refresh at the end; `async_set_hvac_mode` now uses it.
+- Reliability: added a short pause between fallback write paths (`set_status` -> `set_value` -> `set_multiple_values`) instead of reconnecting back-to-back, and one automatic retry (after a 1s pause) on a failed status poll before marking the entity unavailable. Local Tuya modules can be picky about rapid repeated connections; this should reduce spurious "No disponible" states and missed refreshes.
+
 ## 0.22.0
 
 - Fix: `current_temperature` (climate) and the temp_current sensor never divided by the DP scale factor, unlike `target_temperature`. Now both read the scale from the DP's own metadata (defaulting to unscaled, which matches how most Tuya HVAC modules report ambient temperature).
