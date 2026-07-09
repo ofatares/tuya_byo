@@ -1,0 +1,9 @@
+{
+  "name": "Tuya BYO",
+  "domains": [
+    "localtuya_byo"
+  ],
+  "country": "ES",
+  "homeassistant": "2025.1.0",
+  "render_readme": true
+}
