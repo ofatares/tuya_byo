@@ -43,7 +43,21 @@ class TuyaBYOSensor(CoordinatorEntity, SensorEntity):
         self._attr_name = f"{coordinator.name} {label}"
         self._attr_native_unit_of_measurement = UNITS.get(code)
         self._attr_device_info = coordinator.device_info
+        meta = coordinator.mapping.get(dp, {}) if isinstance(coordinator.mapping, dict) else {}
+        values = meta.get("values", {}) if isinstance(meta, dict) else {}
+        try:
+            self.scale = int(values.get("scale", 0)) if isinstance(values, dict) else 0
+        except Exception:  # noqa: BLE001
+            self.scale = 0
 
     @property
     def native_value(self):
-        return self.coordinator.get_dp_value(self.dp)
+        val = self.coordinator.get_dp_value(self.dp)
+        if val is None:
+            return None
+        if not self.scale:
+            return val
+        try:
+            return float(val) / (10 ** self.scale)
+        except Exception:  # noqa: BLE001
+            return val

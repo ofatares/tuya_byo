@@ -20,6 +20,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+import logging
+
 from .const import (
     DATA_COORDINATORS,
     DOMAIN,
@@ -85,6 +87,16 @@ SWING_LABEL_TO_VALUE = {
 }
 SWING_VALUE_TO_LABEL = {v: k for k, v in SWING_LABEL_TO_VALUE.items()}
 
+_LOGGER = logging.getLogger(__name__)
+
+# Codes other than the canonical "switch"/"mode" that different Tuya HVAC
+# modules use for the same function. "switch_1" in particular is extremely
+# common on AC/controller products and was missing before, which meant
+# dp_switch stayed unresolved and the entity fell back to whatever HVAC mode
+# was last cached (showing e.g. "Cooling" even though the unit was off).
+SWITCH_CODE_ALIASES = ("power", "switch_ac", "switch_1", "Power", "power_switch")
+MODE_CODE_ALIASES = ("work_mode", "mode", "mode_1")
+
 
 def _to_bool(value) -> bool:
     """Convert Tuya bool-like values safely."""
@@ -108,7 +120,12 @@ async def async_setup_entry(
 ) -> None:
     entities = []
     for _dev_id, coordinator in hass.data[DOMAIN][DATA_COORDINATORS].items():
-        if coordinator.find_dp(DP_TEMP_SET) and coordinator.find_dp(DP_MODE):
+        # Use the same alias set as TuyaBYOClimate.__init__ below, otherwise a
+        # device whose mode DP is coded "work_mode" (common on Johnson/Midea
+        # controllers) never passes this gate and no climate entity is created.
+        if coordinator.find_dp(DP_TEMP_SET, "temp_set", "target_temp") and coordinator.find_dp(
+            DP_MODE, *MODE_CODE_ALIASES
+        ):
             entities.append(TuyaBYOClimate(coordinator))
     async_add_entities(entities)
 
@@ -134,10 +151,10 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
         self._attr_name = coordinator.name
         self._attr_device_info = coordinator.device_info
 
-        self.dp_switch = coordinator.find_dp(DP_SWITCH, "power", "switch_ac")
+        self.dp_switch = coordinator.find_dp(DP_SWITCH, *SWITCH_CODE_ALIASES)
         self.dp_target = coordinator.find_dp(DP_TEMP_SET, "temp_set", "target_temp")
         self.dp_current = coordinator.find_dp(DP_TEMP_CURRENT, "temp_current", "current_temperature")
-        self.dp_mode = coordinator.find_dp(DP_MODE, "work_mode", "mode")
+        self.dp_mode = coordinator.find_dp(DP_MODE, *MODE_CODE_ALIASES)
         self.dp_fan_mode = coordinator.find_dp(
             DP_FAN_SPEED,
             "fan_speed_enum",
@@ -157,6 +174,23 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
         self.scale = self._target_scale()
         self._setup_temperature_limits()
 
+        # Diagnostic: shows exactly which physical DP got assigned to which
+        # control. Enable debug logging for custom_components.tuya_byo to see
+        # this in Settings > System > Logs if a control is missing/wrong.
+        _LOGGER.debug(
+            "%s: dp_switch=%s dp_mode=%s dp_target=%s dp_current=%s "
+            "dp_fan_mode=%s dp_swing=%s raw_mapping=%s raw_data=%s",
+            coordinator.name,
+            self.dp_switch,
+            self.dp_mode,
+            self.dp_target,
+            self.dp_current,
+            self.dp_fan_mode,
+            self.dp_swing,
+            coordinator.mapping,
+            coordinator.data,
+        )
+
         features = ClimateEntityFeature.TARGET_TEMPERATURE
         self._attr_fan_modes = self._build_fan_modes()
         if self._attr_fan_modes:
@@ -166,10 +200,13 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
             features |= ClimateEntityFeature.SWING_MODE
         self._attr_supported_features = features
 
-    def _target_meta_values(self) -> dict:
-        meta = self.coordinator.mapping.get(self.dp_target, {}) if self.dp_target else {}
+    def _dp_meta_values(self, dp: str | None) -> dict:
+        meta = self.coordinator.mapping.get(dp, {}) if dp else {}
         vals = meta.get("values", {}) if isinstance(meta, dict) else {}
         return vals if isinstance(vals, dict) else {}
+
+    def _target_meta_values(self) -> dict:
+        return self._dp_meta_values(self.dp_target)
 
     def _target_scale(self) -> int:
         vals = self._target_meta_values()
@@ -177,6 +214,17 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
             return int(vals.get("scale", 1))
         except Exception:  # noqa: BLE001
             return 1
+
+    def _current_scale(self) -> int:
+        # Unlike temp_set, most Tuya HVAC modules report temp_current as a
+        # plain, unscaled degree (e.g. "31" means 31.0C), so default to 0
+        # instead of reusing the target's scale. If the DP's own metadata
+        # explicitly declares a scale, honour it.
+        vals = self._dp_meta_values(self.dp_current)
+        try:
+            return int(vals.get("scale", 0))
+        except Exception:  # noqa: BLE001
+            return 0
 
     def _setup_temperature_limits(self) -> None:
         vals = self._target_meta_values()
@@ -226,7 +274,7 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
     def current_temperature(self):
         val = self.coordinator.get_dp_value(self.dp_current)
         try:
-            return float(val)
+            return float(val) / (10 ** self._current_scale())
         except Exception:  # noqa: BLE001
             return None
 
