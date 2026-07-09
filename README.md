@@ -15,3 +15,5 @@ This version focuses on the Cloud knowledge layer:
 ## Important
 
 Do not commit your real `devices.json`, local keys or Tuya API secrets.
+
+a
