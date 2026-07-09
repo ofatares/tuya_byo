@@ -1,4 +1,4 @@
-"""Fan platform for Tuya BYO Local."""
+"""Fan platform for Tuya BYO."""
 from __future__ import annotations
 
 from homeassistant.components.fan import FanEntity, FanEntityFeature

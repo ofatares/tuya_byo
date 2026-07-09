@@ -1,4 +1,4 @@
-"""Climate platform for Tuya BYO Local."""
+"""Climate platform for Tuya BYO."""
 from __future__ import annotations
 
 from homeassistant.components.climate import ClimateEntity, ClimateEntityFeature, HVACMode

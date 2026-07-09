@@ -38,7 +38,7 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
 
     @property
     def identifiers(self):
-        return {("localtuya_byo", self.device_id)}
+        return {("tuya_byo", self.device_id)}
 
     @property
     def device_info(self):

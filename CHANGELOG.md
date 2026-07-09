@@ -1,13 +1,14 @@
 # Changelog
 
+## 0.14.0
+
+- Rename integration domain from `localtuya_byo` to `tuya_byo`.
+- Fix HACS icon handling by including `icon.png` at repository root and component level.
+- Clean normal UI: hide raw `dp_XXX` entities by default.
+- Hide Fahrenheit helper sensors when Celsius entities exist.
+- Improve capability filtering for switches, selects and numbers.
+- Keep DP5 as climate fan mode for Johnson / Midea Tuya modules.
+
 ## 0.13.0
 
-- Add Tuya Cloud Product Specification/Thing Model fetcher.
-- Merge Cloud model, Cloud status and local DPS into a richer internal model.
-- Detect Johnson/Midea DP5 as climate fan mode without manual testing.
-- Hide raw diagnostic dp_N sensors from the normal UI.
-- Keep unknown/ambiguous booleans out of controls until the Cloud API gives an exact DP mapping.
-
-## 0.12.0
-
-- Inspector release.
+- Add first Cloud Product Specification / Thing Model analyser.

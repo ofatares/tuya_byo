@@ -1,7 +1,7 @@
 {
   "name": "Tuya BYO",
+  "domains": ["tuya_byo"],
   "country": "ES",
   "homeassistant": "2025.1.0",
-  "render_readme": true,
-  "filename": false
+  "render_readme": true
 }

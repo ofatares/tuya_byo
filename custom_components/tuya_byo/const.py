@@ -1,7 +1,7 @@
-"""Constants for Tuya BYO Local."""
+"""Constants for Tuya BYO."""
 from __future__ import annotations
 
-DOMAIN = "localtuya_byo"
+DOMAIN = "tuya_byo"
 PLATFORMS = ["fan", "light", "climate", "switch", "select", "number", "sensor"]
 
 CONF_USER_ID = "user_id"
@@ -17,7 +17,7 @@ CONF_IP = "ip"
 CONF_KEY = "key"
 
 DATA_COORDINATORS = "coordinators"
-STORAGE_DIR = "localtuya_byo"
+STORAGE_DIR = "tuya_byo"
 DEVICES_FILE = "devices.json"
 
 DP_SWITCH = "switch"

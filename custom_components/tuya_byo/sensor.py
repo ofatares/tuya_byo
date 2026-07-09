@@ -10,17 +10,15 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DATA_COORDINATORS, DOMAIN, DP_HUMIDITY_CURRENT, DP_TEMP_CURRENT, DP_TEMP_SET
 
-SENSOR_CODES = {DP_HUMIDITY_CURRENT, DP_TEMP_CURRENT, "temp_current_f"}
+SENSOR_CODES = {DP_HUMIDITY_CURRENT, DP_TEMP_CURRENT}
 EXCLUDED_CODES = {DP_TEMP_SET, "temp_set_f", "switch", "fan_switch", "switch_led"}
 UNITS = {
     DP_HUMIDITY_CURRENT: PERCENTAGE,
     DP_TEMP_CURRENT: UnitOfTemperature.CELSIUS,
-    "temp_current_f": UnitOfTemperature.FAHRENHEIT,
 }
 LABELS = {
     DP_HUMIDITY_CURRENT: "humedad",
     DP_TEMP_CURRENT: "temperatura actual",
-    "temp_current_f": "temperatura actual F",
 }
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:

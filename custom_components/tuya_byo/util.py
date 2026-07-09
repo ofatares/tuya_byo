@@ -1,4 +1,4 @@
-"""Utility helpers for Tuya BYO Local."""
+"""Utility helpers for Tuya BYO."""
 from __future__ import annotations
 
 import ipaddress

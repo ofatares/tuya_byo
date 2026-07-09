@@ -1,4 +1,4 @@
-"""Tuya BYO Local integration."""
+"""Tuya BYO integration."""
 from __future__ import annotations
 
 import logging
@@ -13,7 +13,7 @@ from .device import TuyaBYODevice
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up Tuya BYO Local from a config entry."""
+    """Set up Tuya BYO from a config entry."""
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN].setdefault(DATA_COORDINATORS, {})
 
@@ -28,7 +28,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload Tuya BYO Local."""
+    """Unload Tuya BYO."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unloaded:
         for dev_id in entry.data.get(CONF_DEVICES, {}):

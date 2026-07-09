@@ -1,15 +1,19 @@
 # Tuya BYO
 
-Tuya BYO is a Home Assistant custom integration for local control of Tuya/Smart Life devices.
+Tuya BYO is a Home Assistant custom integration for local control of Tuya / Smart Life devices.
 
-## 0.13.0
+It uses Tuya Cloud only to retrieve local keys and device model metadata. Commands and polling are local through TinyTuya.
 
-This version adds the first Cloud Product Specification / Thing Model analyser. It uses Tuya Cloud metadata to name and classify functions, then controls the device locally through TinyTuya.
+## Current goals
 
-Current focus:
+- Clean user-facing entities by default.
+- Hide raw `DP xxx` noise from normal UI.
+- Use Tuya Cloud Product Specification / Thing Model where available.
+- Create meaningful Home Assistant entities: climate, fan, light, switch, select, number and sensor.
+- Keep technical diagnostics separate from controls.
 
-- Climate devices: temperature, mode and fan mode.
-- Create ceiling fan: fan, direction and light.
-- Extra Cloud-described switches/selects/numbers when the Cloud API exposes exact DP identifiers.
+## Notes
 
-Raw unknown DPS are hidden from the normal UI to avoid unusable entities like `DP 103`.
+The integration domain is now `tuya_byo`.
+
+If you previously installed experimental builds using `localtuya_byo`, remove that integration and install Tuya BYO as a new integration.

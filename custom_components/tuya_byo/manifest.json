@@ -1,5 +1,5 @@
 {
-  "domain": "localtuya_byo",
+  "domain": "tuya_byo",
   "name": "Tuya BYO",
   "codeowners": [
     "@ofatares"
@@ -12,5 +12,5 @@
   "requirements": [
     "tinytuya>=1.16.1"
   ],
-  "version": "0.13.0"
+  "version": "0.14.0"
 }

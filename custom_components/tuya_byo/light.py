@@ -1,4 +1,4 @@
-"""Light platform for Tuya BYO Local."""
+"""Light platform for Tuya BYO."""
 from __future__ import annotations
 
 from homeassistant.components.light import LightEntity

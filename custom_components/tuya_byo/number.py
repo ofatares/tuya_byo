@@ -9,11 +9,24 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DATA_COORDINATORS, DOMAIN, DP_FAN_SPEED, DP_TEMP_CURRENT, DP_TEMP_SET, DP_HUMIDITY_CURRENT
 
-EXCLUDED_CODES = {DP_TEMP_SET, DP_TEMP_CURRENT, DP_HUMIDITY_CURRENT, DP_FAN_SPEED, "fan_speed_enum", "temp_current_f", "temp_set_f"}
+EXCLUDED_CODES = {
+    DP_TEMP_SET, DP_TEMP_CURRENT, DP_HUMIDITY_CURRENT, DP_FAN_SPEED,
+    "fan_speed_enum", "fan_mode", "wind_speed", "windspeed",
+    "temp_current_f", "temp_set_f",
+}
 LABELS = {
     "countdown_left_fan": "temporizador ventilador",
+    "countdown": "temporizador",
+    "timer": "temporizador",
     "temp_value": "temperatura color luz",
+    "bright_value": "brillo",
+    "brightness": "brillo",
 }
+
+USER_NUMBER_HINTS = (
+    "countdown", "timer", "brightness", "bright", "temp_value", "colour_temp", "color_temp"
+)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     entities = []
@@ -21,11 +34,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         for dp in coordinator.all_dps():
             meta = coordinator.dp_meta(dp)
             code = str(meta.get("code", f"dp_{dp}"))
-            if code.startswith("dp_"):
+            if code.startswith("dp_") or code in EXCLUDED_CODES:
                 continue
-            if meta.get("type") in {"Integer", "Float", "value"} and code not in EXCLUDED_CODES:
+            if meta.get("type") in {"Integer", "Float", "value"} and any(h in code.lower() for h in USER_NUMBER_HINTS):
                 entities.append(TuyaBYONumber(coordinator, str(dp), code, meta))
     async_add_entities(entities)
+
 
 class TuyaBYONumber(CoordinatorEntity, NumberEntity):
     def __init__(self, coordinator, dp: str, code: str, meta: dict) -> None:

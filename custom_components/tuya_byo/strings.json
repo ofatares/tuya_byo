@@ -1,10 +1,10 @@
 {
-  "title": "Tuya BYO Local",
+  "title": "Tuya BYO",
   "config": {
     "step": {
       "user": {
-        "title": "Tuya BYO Local",
-        "description": "Introduce tus credenciales de Tuya IoT Cloud. La integración usará la nube solo para obtener local keys y mappings.",
+        "title": "Tuya BYO",
+        "description": "Introduce tus credenciales de Tuya IoT Cloud. Tuya BYO usará la nube solo para obtener claves locales y modelos de dispositivo; el control se realiza en local.",
         "data": {
           "region": "Región",
           "client_id": "Client ID",

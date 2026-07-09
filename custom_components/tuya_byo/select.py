@@ -14,7 +14,13 @@ LABELS = {
     "work_mode": "modo luz",
     "temp_unit_convert": "unidad temperatura",
     "swing_mode": "modo swing",
+    "fan_speed_enum": "velocidad ventilador",
+    "fan_mode": "modo ventilador",
+    "wind_speed": "velocidad ventilador",
 }
+
+CLIMATE_OWNED_CODES = {DP_MODE, "fan_speed", "fan_speed_enum", "fan_mode", "wind_speed", "windspeed"}
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     entities = []
@@ -22,11 +28,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         for dp in coordinator.all_dps():
             meta = coordinator.dp_meta(dp)
             code = str(meta.get("code", f"dp_{dp}"))
+            if code.startswith("dp_"):
+                continue
             values = meta.get("values", {}) if isinstance(meta, dict) else {}
             options = values.get("range") if isinstance(values, dict) else None
-            if meta.get("type") == "Enum" and isinstance(options, list) and code not in {DP_MODE}:
+            if meta.get("type") == "Enum" and isinstance(options, list) and code not in CLIMATE_OWNED_CODES:
                 entities.append(TuyaBYOSelect(coordinator, str(dp), code, [str(v) for v in options]))
     async_add_entities(entities)
+
 
 class TuyaBYOSelect(CoordinatorEntity, SelectEntity):
     def __init__(self, coordinator, dp: str, code: str, options: list[str]) -> None:

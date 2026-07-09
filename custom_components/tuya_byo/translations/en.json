@@ -1,10 +1,10 @@
 {
-  "title": "Tuya BYO Local",
+  "title": "Tuya BYO",
   "config": {
     "step": {
       "user": {
-        "title": "Tuya BYO Local",
-        "description": "Enter Tuya IoT Cloud credentials. Cloud is used only to retrieve local keys and mappings.",
+        "title": "Tuya BYO",
+        "description": "Enter Tuya IoT Cloud credentials. Tuya BYO uses the cloud only to retrieve local keys and device models; control is local.",
         "data": {
           "region": "Region",
           "client_id": "Client ID",

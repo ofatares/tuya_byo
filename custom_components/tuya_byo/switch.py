@@ -1,7 +1,7 @@
 """Switch platform for Tuya BYO."""
 from __future__ import annotations
 
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.switch import SwitchEntity, SwitchDeviceClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -9,15 +9,30 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DATA_COORDINATORS, DOMAIN
 
+# These are represented by dedicated entities.
 KNOWN_PRIMARY_CODES = {"switch", "switch_led", "fan_switch"}
+
+# Only create user-facing switches when the code is meaningful. Unknown dp_XXX
+# values are hidden from the normal UI; they belong in diagnostics.
 SWITCH_CODE_HINTS = (
-    "sleep", "mute", "display", "led", "screen", "eco", "turbo", "swing",
-    "clean", "health", "anion", "ion", "beep", "light", "child", "lock",
+    "sleep", "quiet", "night",
+    "mute", "silent",
+    "display", "led", "screen", "panel",
+    "eco", "energy", "save",
+    "turbo", "boost", "powerful", "strong",
+    "swing", "swing_ud", "swing_lr", "wind_swing",
+    "clean", "self_clean", "health", "anion", "ion",
+    "beep", "sound",
+    "child", "lock",
+    "fresh", "uv", "steril", "dry", "mildew",
 )
+
 LABELS = {
     "fan_beep": "beep",
+    "beep": "beep",
     "switch_sleep": "sleep",
     "sleep": "sleep",
+    "quiet_sleep": "sleep",
     "mute": "mute",
     "switch_mute": "mute",
     "display": "display",
@@ -25,8 +40,12 @@ LABELS = {
     "led": "led",
     "switch_led": "luz",
     "screen": "pantalla",
+    "panel": "display",
     "eco": "eco",
+    "energy": "eco",
     "turbo": "turbo",
+    "boost": "turbo",
+    "powerful": "turbo",
     "swing": "swing",
     "swing_ud": "swing vertical",
     "swing_lr": "swing horizontal",
@@ -34,8 +53,24 @@ LABELS = {
     "switch_swing_ud": "swing vertical",
     "switch_swing_lr": "swing horizontal",
     "self_clean": "autolimpieza",
+    "clean": "limpieza",
     "anion": "ionizador",
+    "health": "health",
+    "child_lock": "bloqueo infantil",
 }
+
+
+def _is_user_switch(code: str, meta: dict, value) -> bool:
+    code_l = code.lower()
+    if code_l.startswith("dp_"):
+        return False
+    if code_l in KNOWN_PRIMARY_CODES:
+        return False
+    is_boolean_type = str(meta.get("type", "")).lower() in {"boolean", "bool"}
+    is_boolean_value = isinstance(value, bool)
+    looks_like_switch = any(hint in code_l for hint in SWITCH_CODE_HINTS)
+    return (is_boolean_type or is_boolean_value) and looks_like_switch
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     entities = []
@@ -44,12 +79,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             meta = coordinator.dp_meta(dp)
             code = str(meta.get("code", f"dp_{dp}"))
             value = coordinator.get_dp_value(dp)
-            is_boolean_type = meta.get("type") in {"Boolean", "bool"}
-            is_boolean_value = isinstance(value, bool)
-            looks_like_switch = any(hint in code.lower() for hint in SWITCH_CODE_HINTS)
-            if (is_boolean_type or is_boolean_value or looks_like_switch) and code not in KNOWN_PRIMARY_CODES:
+            if _is_user_switch(code, meta, value):
                 entities.append(TuyaBYOSwitch(coordinator, str(dp), code))
     async_add_entities(entities)
+
 
 class TuyaBYOSwitch(CoordinatorEntity, SwitchEntity):
     def __init__(self, coordinator, dp: str, code: str) -> None:
@@ -60,6 +93,8 @@ class TuyaBYOSwitch(CoordinatorEntity, SwitchEntity):
         label = LABELS.get(code, code.replace("_", " "))
         self._attr_name = f"{coordinator.name} {label}"
         self._attr_device_info = coordinator.device_info
+        if "lock" in code:
+            self._attr_device_class = SwitchDeviceClass.SWITCH
 
     @property
     def is_on(self):

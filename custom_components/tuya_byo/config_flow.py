@@ -1,4 +1,4 @@
-"""Config flow for Tuya BYO Local."""
+"""Config flow for Tuya BYO."""
 from __future__ import annotations
 
 import logging
@@ -23,12 +23,12 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Required(CONF_CLIENT_ID): cv.string,
         vol.Required(CONF_CLIENT_SECRET): cv.string,
         vol.Required(CONF_USER_ID): cv.string,
-        vol.Optional(CONF_USERNAME, default="Tuya BYO Local"): cv.string,
+        vol.Optional(CONF_USERNAME, default="Tuya BYO"): cv.string,
     }
 )
 
 class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a Tuya BYO Local config flow."""
+    """Handle a Tuya BYO config flow."""
 
     VERSION = 1
 
@@ -41,13 +41,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
                 data = dict(user_input)
                 data[CONF_DEVICES] = {dev["id"]: dev for dev in devices}
-                return self.async_create_entry(title=user_input.get(CONF_USERNAME, "Tuya BYO Local"), data=data)
+                return self.async_create_entry(title=user_input.get(CONF_USERNAME, "Tuya BYO"), data=data)
             except InvalidAuth:
                 errors["base"] = "invalid_auth"
             except CannotConnect:
                 errors["base"] = "cannot_connect"
             except Exception as ex:  # noqa: BLE001
-                _LOGGER.exception("Unexpected error configuring Tuya BYO Local: %s", ex)
+                _LOGGER.exception("Unexpected error configuring Tuya BYO: %s", ex)
                 errors["base"] = "unknown"
 
         return self.async_show_form(step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors)
