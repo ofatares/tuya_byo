@@ -12,12 +12,26 @@
           "user_id": "User ID/UID",
           "username": "Entry name"
         }
+      },
+      "reconfigure": {
+        "title": "Update Tuya BYO",
+        "description": "Re-query Tuya Cloud with the same credentials to refresh the DP mapping for your devices (e.g. to pick up swing/eco/LED controls that weren't detected before).",
+        "data": {
+          "region": "Region",
+          "client_id": "Client ID",
+          "client_secret": "Client Secret",
+          "user_id": "User ID/UID",
+          "username": "Entry name"
+        }
       }
     },
     "error": {
       "cannot_connect": "Could not connect to Tuya Cloud.",
       "invalid_auth": "Invalid credentials.",
       "unknown": "Unknown error. Check logs."
+    },
+    "abort": {
+      "reconfigure_successful": "Device mapping refreshed successfully."
     }
   }
 }

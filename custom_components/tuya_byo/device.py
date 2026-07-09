@@ -271,9 +271,14 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
             }
 
         # 2) Product-specific safe enrichments discovered from Cloud/local data.
+        # Only applied as a last resort when DP5 is still unmapped -- now that
+        # step 1 can resolve real dp_id data from the Things Data Model
+        # endpoint, this must not clobber a correctly-identified mapping for
+        # devices where DP5 turns out to be something else.
         product_id = str(self.config.get("product_id") or "")
         category = str(self.config.get("category") or "")
-        if category == "kt" or product_id == "hrzr8mr0mtgfwwri":
+        dp5_code = str(self.mapping.get("5", {}).get("code", "dp_5"))
+        if (category == "kt" or product_id == "hrzr8mr0mtgfwwri") and dp5_code.startswith("dp_"):
             # Johnson/Midea Tuya modules report DP5 as fan mode. User confirmed.
             self.mapping.setdefault("5", {})
             self.mapping["5"].update({

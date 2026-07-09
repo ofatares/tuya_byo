@@ -52,6 +52,48 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors)
 
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
+        """Re-run the Cloud fetch for an already-configured entry.
+
+        Use this (via the integration's "Reconfigure" option, HA 2024.11+) to
+        pick up mapping improvements -- e.g. the dp_id data now pulled from
+        the Things Data Model endpoint -- for devices that were first set up
+        before that existed, without deleting and re-adding the integration
+        and losing entity history.
+        """
+        errors: dict[str, str] = {}
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        current = entry.data if entry else {}
+
+        if user_input is not None:
+            try:
+                devices = await self._build_devices(user_input)
+                data = dict(user_input)
+                data[CONF_DEVICES] = {dev["id"]: dev for dev in devices}
+                self.hass.config_entries.async_update_entry(
+                    entry, data=data, title=user_input.get(CONF_USERNAME, entry.title)
+                )
+                await self.hass.config_entries.async_reload(entry.entry_id)
+                return self.async_abort(reason="reconfigure_successful")
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except Exception as ex:  # noqa: BLE001
+                _LOGGER.exception("Unexpected error reconfiguring Tuya BYO: %s", ex)
+                errors["base"] = "unknown"
+
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_REGION, default=current.get(CONF_REGION, "eu")): vol.In(REGIONS),
+                vol.Required(CONF_CLIENT_ID, default=current.get(CONF_CLIENT_ID, "")): cv.string,
+                vol.Required(CONF_CLIENT_SECRET, default=current.get(CONF_CLIENT_SECRET, "")): cv.string,
+                vol.Required(CONF_USER_ID, default=current.get(CONF_USER_ID, "")): cv.string,
+                vol.Optional(CONF_USERNAME, default=current.get(CONF_USERNAME, "Tuya BYO")): cv.string,
+            }
+        )
+        return self.async_show_form(step_id="reconfigure", data_schema=schema, errors=errors)
+
     async def _build_devices(self, user_input: dict[str, Any]) -> list[dict[str, Any]]:
         api = TuyaCloudApi(
             self.hass,

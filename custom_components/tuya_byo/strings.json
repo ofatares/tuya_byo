@@ -12,12 +12,26 @@
           "user_id": "User ID/UID",
           "username": "Nombre de la entrada"
         }
+      },
+      "reconfigure": {
+        "title": "Actualizar Tuya BYO",
+        "description": "Vuelve a consultar Tuya Cloud con las mismas credenciales para refrescar el mapeo de DPs de tus dispositivos (por ejemplo, para recoger swing/eco/LED que antes no se detectaban).",
+        "data": {
+          "region": "Región",
+          "client_id": "Client ID",
+          "client_secret": "Client Secret",
+          "user_id": "User ID/UID",
+          "username": "Nombre de la entrada"
+        }
       }
     },
     "error": {
       "cannot_connect": "No se pudo conectar con Tuya Cloud.",
       "invalid_auth": "Credenciales no válidas.",
       "unknown": "Error desconocido. Revisa los registros."
+    },
+    "abort": {
+      "reconfigure_successful": "Mapeo de dispositivos actualizado correctamente."
     }
   }
 }

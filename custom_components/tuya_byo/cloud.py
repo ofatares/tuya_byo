@@ -45,23 +45,60 @@ def _normalise_values(values: Any) -> dict[str, Any]:
     return {"raw": values}
 
 
+def _typespec_to_type_values(type_spec: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Convert a Things Data Model `typeSpec` into our internal (type, values).
+
+    This is the schema returned by GET /v2.0/cloud/thing/{device_id}/model --
+    unlike every other Tuya Cloud endpoint used here (specifications/functions/
+    status), it's the one that actually carries the real numeric DP id
+    (as `abilityId`) alongside the code, type and full value range, so it
+    doesn't need any manual trial-and-error to fill in.
+    """
+    if not isinstance(type_spec, dict):
+        return "Unknown", {}
+    t = str(type_spec.get("type", "")).lower()
+    if t == "bool":
+        return "Boolean", {}
+    if t == "value":
+        return "Integer", {
+            k: type_spec[k] for k in ("min", "max", "step", "scale", "unit") if k in type_spec
+        }
+    if t in ("float", "double"):
+        return "Float", {k: type_spec[k] for k in ("min", "max", "step", "unit") if k in type_spec}
+    if t == "enum":
+        return "Enum", {"range": type_spec.get("range", [])}
+    if t == "string":
+        return "String", {}
+    if t == "bitmap":
+        return "Bitmap", {"range": type_spec.get("range", [])}
+    if t == "raw":
+        return "Raw", {}
+    return "Unknown", {}
+
+
 def _normalise_spec_item(item: dict[str, Any]) -> dict[str, Any]:
     """Normalise Tuya function/status/model entries."""
-    dp_id = (
-        item.get("dp_id")
-        or item.get("dpId")
-        or item.get("dpid")
-        or item.get("id")
-    )
+    dp_id = None
+    for key in ("dp_id", "dpId", "dpid", "abilityId", "id"):
+        val = item.get(key)
+        if val is not None:
+            dp_id = val
+            break
     code = item.get("code") or item.get("identifier") or item.get("name")
     name = item.get("name") or item.get("desc") or item.get("description") or code
-    typ = item.get("type") or item.get("data_type") or item.get("dataType") or item.get("propertyType") or "Unknown"
+    type_spec = item.get("typeSpec")
+    if isinstance(type_spec, dict):
+        # Things Data Model property/action/event param.
+        typ, values = _typespec_to_type_values(type_spec)
+    else:
+        typ = item.get("type") or item.get("data_type") or item.get("dataType") or item.get("propertyType") or "Unknown"
+        values = _normalise_values(item.get("values") or item.get("value_range") or item.get("valueRange"))
     return {
         "dp_id": str(dp_id) if dp_id is not None else None,
         "code": str(code) if code is not None else None,
         "name": str(name) if name is not None else None,
         "type": str(typ),
-        "values": _normalise_values(item.get("values") or item.get("value_range") or item.get("valueRange")),
+        "values": values,
         "raw": item,
     }
 
@@ -79,10 +116,20 @@ def _extract_items(payload: Any) -> list[dict[str, Any]]:
 
     for key in ("functions", "status", "properties", "services", "model", "result"):
         value = payload.get(key)
+        if key == "model" and isinstance(value, str):
+            # GET /v2.0/cloud/thing/{id}/model returns {"model": "<json string>"}
+            # with the real schema (services -> properties, each carrying the
+            # numeric abilityId/dp_id) encoded as a JSON string, not nested
+            # objects -- it has to be parsed before it can be walked below.
+            try:
+                value = json.loads(value)
+            except Exception:  # noqa: BLE001
+                value = None
         if isinstance(value, list):
             for item in value:
                 if isinstance(item, dict):
-                    # Thing model can nest properties inside services.
+                    # Thing model nests properties (and actions/events) inside
+                    # each service; only properties represent stateful DPs.
                     if key == "services" and isinstance(item.get("properties"), list):
                         items.extend(x for x in item["properties"] if isinstance(x, dict))
                     else:

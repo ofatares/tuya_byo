@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.25.0
+
+- Fix: the integration already called Tuya's "Query Things Data Model" endpoint (`GET /v2.0/cloud/thing/{device_id}/model`) -- the one endpoint that actually returns the real numeric DP id (as `abilityId`) alongside each function's code/type/value range -- but its response is a JSON-encoded *string*, and the parser silently dropped it instead of decoding it, and didn't recognise `abilityId` as a dp_id field. Both are fixed, verified against Tuya's documented example payload and a synthetic AC-shaped one (switch/mode/eco/swing_ud/switch_led all resolved correctly with the right dp_id, type and enum ranges).
+- This means swing (including the precision multi-position options), eco, sleep, panel LED, etc. can now be discovered automatically from Tuya Cloud instead of relying on the value-matching guesswork (which was ambiguous for booleans) or on manual trial-and-error.
+- Fix: a hardcoded DP5-is-fan-speed override for "kt"-category (Johnson/Midea) devices used to unconditionally overwrite whatever DP5 actually resolved to. Now it only applies when DP5 is still unmapped, so it can't clobber a correct mapping now that the model endpoint works.
+- Add: a `reconfigure` step (Settings > Devices & Services > Tuya BYO > Reconfigure, needs HA 2024.11+) that re-queries Tuya Cloud with your existing credentials and refreshes the DP mapping in place -- no need to delete and re-add the integration to pick this up. If your HA is older, removing and re-adding the integration achieves the same thing.
+
 ## 0.24.0
 
 - Perf: status polling now reuses one persistent local connection instead of opening a brand-new one (full TCP + session-key handshake) every single poll. This was the main reason the integration felt slower than the official Tuya app and lagged behind changes made from the mobile app. Writes still use a fresh connection per attempt on purpose (see 0.21.0 — reusing sockets for writes previously caused some Tuya 3.5 HVAC modules to ignore commands), so this only speeds up reads.
