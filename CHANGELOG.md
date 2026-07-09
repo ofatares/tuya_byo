@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.27.0
+
+- Fix (the real cause of "swing y modos siguen sin salir"): confirmed from the user's debug log that their device's real mapping uses Tuya's lowercase Things-Data-Model type strings (`'enum'`, `'bool'`, `'value'`), not the capitalised convention (`'Enum'`, `'Boolean'`, `'Integer'`) used elsewhere in this codebase. `select.py`'s gate compared with `==` on the exact case, so it silently created zero entities for every enum DP -- sleep, fresh_air, energy level, and all four swing sweep/freeze DPs were present and correctly typed in the mapping the whole time, just never surfaced. Fixed to compare case-insensitively (matches how `switch.py` already did it). Also made `number.py`'s type check case-insensitive for the same reason.
+- Add: `up_down_sweep` (confirmed from the log to be the real vertical swing/sweep DP, 4-position range) is now wired into the climate entity's native swing_mode. `left_right_sweep`, `up_down_freeze`, and `left_right_freeze` show up as separate select entities instead (avoids trying to force a two-axis sweep+fixed-position control into HA's single swing_mode slot). Tuya doesn't publish human labels for these numeric range values (`'0'..'3'` etc.), so they show as plain numbers until confirmed by testing against the physical unit.
+- `sleep`, `fresh_air`, and `energy` (which looks like the eco level: off/L1/L2/L3) now appear as select entities too, now that the case-sensitivity bug is fixed.
+
 ## 0.26.1
 
 - Fix: `TuyaBYOLight` (the panel LED entity, DP `switch_led`) never declared `supported_color_modes`, which modern Home Assistant requires even for plain on/off lights. This raised `HomeAssistantError: ... does not set supported color modes` during entity registration, crashing the light platform setup for that config entry. Added `ColorMode.ONOFF` as the sole supported mode.

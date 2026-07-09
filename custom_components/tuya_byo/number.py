@@ -36,7 +36,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             code = str(meta.get("code", f"dp_{dp}"))
             if code.startswith("dp_") or code in EXCLUDED_CODES:
                 continue
-            if meta.get("type") in {"Integer", "Float", "value"} and any(h in code.lower() for h in USER_NUMBER_HINTS):
+            # Case-insensitive: Tuya's Things Data Model reports lowercase
+            # types ('value', 'float'), other Cloud paths capitalise them.
+            if str(meta.get("type", "")).lower() in {"integer", "float", "value"} and any(
+                h in code.lower() for h in USER_NUMBER_HINTS
+            ):
                 entities.append(TuyaBYONumber(coordinator, str(dp), code, meta))
     async_add_entities(entities)
 

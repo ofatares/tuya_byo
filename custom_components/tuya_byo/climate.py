@@ -169,6 +169,7 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
             "vertical_swing",
             "wind_swing",
             "air_flow",
+            "up_down_sweep",
         )
 
         self.scale = self._target_scale()

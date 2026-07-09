@@ -17,9 +17,22 @@ LABELS = {
     "fan_speed_enum": "velocidad ventilador",
     "fan_mode": "modo ventilador",
     "wind_speed": "velocidad ventilador",
+    "sleep": "modo sleep",
+    "fresh_air": "aire fresco",
+    "energy": "nivel eco",
+    "up_down_sweep": "swing vertical (barrido)",
+    "left_right_sweep": "swing horizontal (barrido)",
+    "up_down_freeze": "swing vertical (posición fija)",
+    "left_right_freeze": "swing horizontal (posición fija)",
 }
 
-CLIMATE_OWNED_CODES = {DP_MODE, "fan_speed", "fan_speed_enum", "fan_mode", "wind_speed", "windspeed"}
+# "up_down_sweep" is also wired directly into the climate entity's native
+# swing_mode (see climate.py), so it's excluded here to avoid a duplicate
+# entity for the same DP.
+CLIMATE_OWNED_CODES = {
+    DP_MODE, "fan_speed", "fan_speed_enum", "fan_mode", "wind_speed", "windspeed",
+    "up_down_sweep",
+}
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
@@ -32,7 +45,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 continue
             values = meta.get("values", {}) if isinstance(meta, dict) else {}
             options = values.get("range") if isinstance(values, dict) else None
-            if meta.get("type") == "Enum" and isinstance(options, list) and code not in CLIMATE_OWNED_CODES:
+            # Tuya's Things Data Model reports types as lowercase ('enum',
+            # 'bool', 'value'); some other Cloud paths in this integration
+            # use a capitalised convention ('Enum'). Compare case-insensitively
+            # so real enum DPs aren't silently skipped depending on which
+            # source populated the mapping -- this was hiding sleep,
+            # fresh_air, energy level, and all four swing sweep/freeze DPs.
+            is_enum = str(meta.get("type", "")).lower() == "enum"
+            if is_enum and isinstance(options, list) and options and code not in CLIMATE_OWNED_CODES:
                 entities.append(TuyaBYOSelect(coordinator, str(dp), code, [str(v) for v in options]))
     async_add_entities(entities)
 
