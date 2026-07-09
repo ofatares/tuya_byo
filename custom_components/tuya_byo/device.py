@@ -12,14 +12,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 _LOGGER = logging.getLogger(__name__)
-# A fresh, non-persistent connection has a real handshake cost (TCP connect +
-# session-key negotiation on protocol 3.4/3.5), which is why every poll used
-# to feel sluggish compared to the official app (which keeps one connection
-# open). Status polling now reuses a persistent connection (see
-# _get_read_device_sync), which makes frequent polling cheap, so we can afford
-# a much shorter interval and still reflect changes made from the Tuya app
-# quickly without hammering the device with new handshakes every few seconds.
-SCAN_INTERVAL = timedelta(seconds=6)
+# 0.24.0 briefly reused a persistent connection for status polling to cut
+# handshake overhead, but that caused intermittent disconnects/erratic state
+# on at least one device -- consistent with the reason _make_device_sync
+# below avoids persistence for writes too. Reverted: every poll uses a fresh
+# connection again. 12s (vs the original 15s) is a modest, conservative
+# speed-up rather than the more aggressive 6s tried in 0.24.0.
+SCAN_INTERVAL = timedelta(seconds=12)
 
 
 class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
@@ -43,14 +42,6 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
         self.cloud_status = config.get("cloud_status") or {}
         self._device = None
         self._lock = asyncio.Lock()
-        # Persistent connection used ONLY for read-only status polling (see
-        # _get_read_device_sync). Writes deliberately keep using a fresh
-        # connection per attempt (see _make_device_sync) -- a previous version
-        # of this integration reused sockets for writes too and some Tuya 3.5
-        # HVAC modules ignored or lost commands as a result. Reusing the
-        # connection for reads only gives most of the speed benefit without
-        # touching that known write-reliability issue.
-        self._read_device = None
         # Remembers which write path (set_status/set_value/set_multiple_values)
         # actually worked last time for this device, so subsequent writes try
         # it first instead of always attempting them in a fixed order.
@@ -83,30 +74,9 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
         dev.set_socketPersistent(False)
         return dev
 
-    def _get_read_device_sync(self, fresh: bool = False):
-        """Return the cached persistent connection used for status polling.
-
-        Creating a new TinyTuya device object per poll re-does the full
-        handshake every time, which is the main reason polling (and therefore
-        picking up changes made from the official Tuya app) felt much slower
-        than it should. Reusing one connection removes that cost; if it ever
-        breaks (device rebooted, briefly dropped Wi-Fi, etc.) we transparently
-        reconnect on the next call.
-        """
-        if fresh or self._read_device is None:
-            dev = tinytuya.Device(self.device_id, self.host, self.key)
-            dev.set_version(self.version)
-            dev.set_socketPersistent(True)
-            self._read_device = dev
-        return self._read_device
-
     def _status_sync(self):
-        try:
-            return self._get_read_device_sync().status()
-        except Exception as ex:  # noqa: BLE001
-            _LOGGER.debug("Persistent status connection failed (%s), reconnecting", ex)
-            self._read_device = None
-            return self._get_read_device_sync(fresh=True).status()
+        dev = self._make_device_sync()
+        return dev.status()
 
     @staticmethod
     def _looks_success(result: Any) -> bool:

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.25.1
+
+- Revert: the persistent connection used for status polling since 0.24.0 caused intermittent disconnects and erratic state, especially noticeable when changing settings from the official Tuya app. This is consistent with the reason writes already avoided persistent sockets (some Tuya 3.5 HVAC modules don't tolerate a reused connection well) -- it evidently applies to reads on this hardware too. Reverted to a fresh connection per poll.
+- Poll interval dialed back from the aggressive 6s to a more conservative 12s (still faster than the original 15s) to reduce connection churn now that every poll reconnects from scratch again.
+- Kept: write-path preference caching and the batched switch+mode write from 0.23/0.24, which are unrelated to this and unaffected.
+
 ## 0.25.0
 
 - Fix: the integration already called Tuya's "Query Things Data Model" endpoint (`GET /v2.0/cloud/thing/{device_id}/model`) -- the one endpoint that actually returns the real numeric DP id (as `abilityId`) alongside each function's code/type/value range -- but its response is a JSON-encoded *string*, and the parser silently dropped it instead of decoding it, and didn't recognise `abilityId` as a dp_id field. Both are fixed, verified against Tuya's documented example payload and a synthetic AC-shaped one (switch/mode/eco/swing_ud/switch_led all resolved correctly with the right dp_id, type and enum ranges).
