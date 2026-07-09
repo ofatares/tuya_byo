@@ -122,8 +122,10 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
 
     @property
     def hvac_mode(self):
-        if self.dp_switch and not bool(self.coordinator.get_dp_value(self.dp_switch, False)):
-            return HVACMode.OFF
+        if self.dp_switch:
+            power = self.coordinator.get_dp_value(self.dp_switch, False)
+            if power in (False, 0, "false", "False", "off", "OFF", "0", None):
+                return HVACMode.OFF
         mode = str(self.coordinator.get_dp_value(self.dp_mode, "auto"))
         return MODE_TO_HVAC.get(mode, HVACMode.AUTO)
 
@@ -198,6 +200,8 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
 
     @property
     def preset_mode(self):
+        if self.hvac_mode == HVACMode.OFF:
+            return PRESET_NONE
         for preset, dp in self._preset_dps.items():
             if bool(self.coordinator.get_dp_value(dp, False)):
                 return preset

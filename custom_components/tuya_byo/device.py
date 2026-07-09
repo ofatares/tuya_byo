@@ -33,7 +33,6 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
         self.mapping = config.get("mapping") or {}
         self.cloud_model = config.get("cloud_model") or []
         self.cloud_status = config.get("cloud_status") or {}
-        self._device = None
         self._lock = asyncio.Lock()
 
     @property
@@ -50,22 +49,23 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
             "sw_version": str(self.version),
         }
 
-    def _ensure_device_sync(self):
-        """Create TinyTuya device inside executor only."""
-        if self._device is None:
-            dev = tinytuya.Device(self.device_id, self.host, self.key)
-            dev.set_version(self.version)
-            dev.set_socketPersistent(False)
-            self._device = dev
-        return self._device
+    def _make_device_sync(self):
+        """Create TinyTuya device inside executor only.
+
+        TinyTuya devices can keep stale state when reused after external changes
+        from Smart Life, remotes, or HomeKit. Creating a fresh instance for each
+        poll/command is slightly less efficient but much more reliable for ACs.
+        """
+        dev = tinytuya.Device(self.device_id, self.host, self.key)
+        dev.set_version(self.version)
+        dev.set_socketPersistent(False)
+        return dev
 
     def _status_sync(self):
-        dev = self._ensure_device_sync()
-        return dev.status()
+        return self._make_device_sync().status()
 
     def _set_dp_sync(self, dp: str | int, value: Any):
-        dev = self._ensure_device_sync()
-        return dev.set_value(int(dp), value)
+        return self._make_device_sync().set_value(int(dp), value)
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:

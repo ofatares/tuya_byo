@@ -16,10 +16,10 @@ from .capabilities import (
     friendly_label,
     is_diagnostic_code,
 )
-from .const import DATA_COORDINATORS, DOMAIN, DP_MODE
+from .const import DATA_COORDINATORS, DOMAIN, DP_MODE, DP_TEMP_UNIT
 
 CLIMATE_OWNED_CAPABILITIES = CLIMATE_PRESET_CAPABILITIES | CLIMATE_SWING_CAPABILITIES | {"fan_mode"}
-CLIMATE_OWNED_CODES = {DP_MODE, *FAN_MODE_CODES}
+CLIMATE_OWNED_CODES = {DP_MODE, DP_TEMP_UNIT, *FAN_MODE_CODES}
 
 
 def _device_has_climate(coordinator) -> bool:
