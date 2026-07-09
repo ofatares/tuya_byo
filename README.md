@@ -1,5 +1,7 @@
 # Tuya BYO
 
+**Versión actual: 0.23.0** (debe coincidir con `custom_components/tuya_byo/manifest.json` — compruébalo tras cada actualización/HACS para confirmar que subió la versión correcta).
+
 Local Tuya/Smart Life integration for Home Assistant using TinyTuya transport and Tuya Cloud knowledge.
 
 ## Current focus
