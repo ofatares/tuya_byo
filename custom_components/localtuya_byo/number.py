@@ -9,7 +9,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DATA_COORDINATORS, DOMAIN, DP_FAN_SPEED, DP_TEMP_CURRENT, DP_TEMP_SET, DP_HUMIDITY_CURRENT
 
-EXCLUDED_CODES = {DP_TEMP_SET, DP_TEMP_CURRENT, DP_HUMIDITY_CURRENT, DP_FAN_SPEED}
+EXCLUDED_CODES = {DP_TEMP_SET, DP_TEMP_CURRENT, DP_HUMIDITY_CURRENT, DP_FAN_SPEED, "temp_current_f", "temp_set_f"}
 LABELS = {
     "countdown_left_fan": "temporizador ventilador",
     "temp_value": "temperatura color luz",
@@ -18,9 +18,12 @@ LABELS = {
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     entities = []
     for _dev_id, coordinator in hass.data[DOMAIN][DATA_COORDINATORS].items():
-        for dp, meta in coordinator.mapping.items():
-            code = meta.get("code", f"dp_{dp}")
-            if meta.get("type") == "Integer" and code not in EXCLUDED_CODES:
+        for dp in coordinator.all_dps():
+            meta = coordinator.dp_meta(dp)
+            code = str(meta.get("code", f"dp_{dp}"))
+            if code.startswith("dp_"):
+                continue
+            if meta.get("type") in {"Integer", "Float", "value"} and code not in EXCLUDED_CODES:
                 entities.append(TuyaBYONumber(coordinator, str(dp), code, meta))
     async_add_entities(entities)
 

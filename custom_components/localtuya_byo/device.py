@@ -69,7 +69,6 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
         try:
             async with self._lock:
                 status = await self.hass.async_add_executor_job(self._status_sync)
-
             dps = status.get("dps", status) if isinstance(status, dict) else {}
             return {str(k): v for k, v in (dps or {}).items()}
         except Exception as ex:  # noqa: BLE001
@@ -89,3 +88,31 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
 
     def get_dp_value(self, dp: str | int, default=None):
         return (self.data or {}).get(str(dp), default)
+
+    def all_dps(self) -> list[str]:
+        """Return all known DPS from mapping and from live status."""
+        keys = set(str(k) for k in self.mapping.keys())
+        keys.update(str(k) for k in (self.data or {}).keys())
+        return sorted(keys, key=lambda item: int(item) if item.isdigit() else item)
+
+    def dp_meta(self, dp: str | int) -> dict[str, Any]:
+        """Return metadata for a DP, creating diagnostic metadata for live-only DPS."""
+        dp = str(dp)
+        meta = self.mapping.get(dp)
+        if isinstance(meta, dict):
+            return meta
+        value = self.get_dp_value(dp)
+        if isinstance(value, bool):
+            typ = "Boolean"
+        elif isinstance(value, int):
+            typ = "Integer"
+        elif isinstance(value, float):
+            typ = "Float"
+        elif isinstance(value, str):
+            typ = "String"
+        else:
+            typ = "Unknown"
+        return {"code": f"dp_{dp}", "type": typ, "values": {}, "diagnostic": True}
+
+    def dp_code(self, dp: str | int) -> str:
+        return str(self.dp_meta(dp).get("code") or f"dp_{dp}")

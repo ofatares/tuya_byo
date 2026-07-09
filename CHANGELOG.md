@@ -1,14 +1,14 @@
 # Changelog
 
+## 0.12.0
+
+- Adds live-DP inspector entities for unknown DPS (`dp_101`, `dp_102`, etc.).
+- Preserves and exposes live DPS even when the Tuya Cloud model does not name them.
+- Adds extra automatic switches for boolean/switch-like functions such as sleep, mute, display, eco, turbo, swing, clean, ionizer and beep when present.
+- Keeps unknown numeric DPS as sensors instead of writable controls to avoid unsafe commands.
+- Improves fan mode handling for climate devices.
+- Keeps TinyTuya device creation and polling inside Home Assistant executor.
+
 ## 0.11.0
 
-- Fix TinyTuya blocking calls by creating and polling devices inside Home Assistant executor jobs.
-- Restores device connectivity after v0.10 regression.
-
-
-## 0.10.0
-- Rename display name to Tuya BYO.
-- Add project logo/icon.
-- Add generated select, number and sensor platforms.
-- Add extra Boolean DPS switches based on live DPS values.
-- Add climate fan mode support where a `fan_speed` DP is available.
+- Fixes connectivity regression with TinyTuya executor handling.

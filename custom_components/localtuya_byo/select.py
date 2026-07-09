@@ -7,20 +7,21 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DATA_COORDINATORS, DOMAIN, DP_FAN_DIRECTION, DP_MODE, DP_WORK_MODE, DP_TEMP_UNIT
+from .const import DATA_COORDINATORS, DOMAIN, DP_MODE
 
-PRIMARY_CODES = {DP_MODE, DP_FAN_DIRECTION}
 LABELS = {
     "fan_direction": "dirección",
     "work_mode": "modo luz",
     "temp_unit_convert": "unidad temperatura",
+    "swing_mode": "modo swing",
 }
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     entities = []
     for _dev_id, coordinator in hass.data[DOMAIN][DATA_COORDINATORS].items():
-        for dp, meta in coordinator.mapping.items():
-            code = meta.get("code", f"dp_{dp}")
+        for dp in coordinator.all_dps():
+            meta = coordinator.dp_meta(dp)
+            code = str(meta.get("code", f"dp_{dp}"))
             values = meta.get("values", {}) if isinstance(meta, dict) else {}
             options = values.get("range") if isinstance(values, dict) else None
             if meta.get("type") == "Enum" and isinstance(options, list) and code not in {DP_MODE}:

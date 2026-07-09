@@ -93,7 +93,12 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
             if isinstance(rng, list):
                 options = [str(v) for v in rng]
         if not options:
-            options = ["auto", "low", "middle", "high", "strong"]
+            current = self.coordinator.get_dp_value(self.dp_fan_mode)
+            # Johnson/Midea modules often expose fan mode as string even if cloud says Integer.
+            if isinstance(current, str):
+                options = ["auto", "low", "middle", "high", "strong"]
+            else:
+                options = ["auto", "low", "middle", "high", "strong"]
         return options
 
     @property
@@ -104,7 +109,14 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
         return str(value) if value is not None else None
 
     async def async_set_fan_mode(self, fan_mode: str):
-        if self.dp_fan_mode:
+        if not self.dp_fan_mode:
+            return
+        current = self.coordinator.get_dp_value(self.dp_fan_mode)
+        # If the device reports strings, send strings. If it reports numeric values, map common names.
+        if isinstance(current, int):
+            mapping = {"auto": 0, "low": 1, "middle": 2, "high": 3, "strong": 4}
+            await self.coordinator.async_set_dp(self.dp_fan_mode, mapping.get(fan_mode, current))
+        else:
             await self.coordinator.async_set_dp(self.dp_fan_mode, fan_mode)
 
     async def async_set_hvac_mode(self, hvac_mode):

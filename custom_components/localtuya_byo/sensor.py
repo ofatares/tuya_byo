@@ -8,9 +8,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DATA_COORDINATORS, DOMAIN, DP_HUMIDITY_CURRENT, DP_TEMP_CURRENT
+from .const import DATA_COORDINATORS, DOMAIN, DP_HUMIDITY_CURRENT, DP_TEMP_CURRENT, DP_TEMP_SET
 
 SENSOR_CODES = {DP_HUMIDITY_CURRENT, DP_TEMP_CURRENT, "temp_current_f"}
+EXCLUDED_CODES = {DP_TEMP_SET, "temp_set_f", "switch", "fan_switch", "switch_led"}
 UNITS = {
     DP_HUMIDITY_CURRENT: PERCENTAGE,
     DP_TEMP_CURRENT: UnitOfTemperature.CELSIUS,
@@ -25,10 +26,13 @@ LABELS = {
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     entities = []
     for _dev_id, coordinator in hass.data[DOMAIN][DATA_COORDINATORS].items():
-        for dp, meta in coordinator.mapping.items():
-            code = meta.get("code", f"dp_{dp}")
-            if code in SENSOR_CODES:
-                entities.append(TuyaBYOSensor(coordinator, str(dp), code))
+        for dp in coordinator.all_dps():
+            meta = coordinator.dp_meta(dp)
+            code = str(meta.get("code", f"dp_{dp}"))
+            # Known read-only sensors + unknown/live-only DPS as diagnostics.
+            if code in SENSOR_CODES or code.startswith("dp_"):
+                if code not in EXCLUDED_CODES:
+                    entities.append(TuyaBYOSensor(coordinator, str(dp), code))
     async_add_entities(entities)
 
 class TuyaBYOSensor(CoordinatorEntity, SensorEntity):
