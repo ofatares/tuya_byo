@@ -7,33 +7,40 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .capabilities import (
+    CLIMATE_PRESET_CAPABILITIES,
+    CLIMATE_SWING_CAPABILITIES,
+    FAN_MODE_CODES,
+    capability_for_code,
+    enum_options,
+    friendly_label,
+    is_diagnostic_code,
+)
 from .const import DATA_COORDINATORS, DOMAIN, DP_MODE
 
-LABELS = {
-    "fan_direction": "dirección",
-    "work_mode": "modo luz",
-    "temp_unit_convert": "unidad temperatura",
-    "swing_mode": "modo swing",
-    "fan_speed_enum": "velocidad ventilador",
-    "fan_mode": "modo ventilador",
-    "wind_speed": "velocidad ventilador",
-}
+CLIMATE_OWNED_CAPABILITIES = CLIMATE_PRESET_CAPABILITIES | CLIMATE_SWING_CAPABILITIES | {"fan_mode"}
+CLIMATE_OWNED_CODES = {DP_MODE, *FAN_MODE_CODES}
 
-CLIMATE_OWNED_CODES = {DP_MODE, "fan_speed", "fan_speed_enum", "fan_mode", "wind_speed", "windspeed"}
+
+def _device_has_climate(coordinator) -> bool:
+    return bool(coordinator.find_dp("temp_set") and coordinator.find_dp("mode"))
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     entities = []
     for _dev_id, coordinator in hass.data[DOMAIN][DATA_COORDINATORS].items():
+        has_climate = _device_has_climate(coordinator)
         for dp in coordinator.all_dps():
             meta = coordinator.dp_meta(dp)
             code = str(meta.get("code", f"dp_{dp}"))
-            if code.startswith("dp_"):
+            if is_diagnostic_code(code):
                 continue
-            values = meta.get("values", {}) if isinstance(meta, dict) else {}
-            options = values.get("range") if isinstance(values, dict) else None
-            if meta.get("type") == "Enum" and isinstance(options, list) and code not in CLIMATE_OWNED_CODES:
-                entities.append(TuyaBYOSelect(coordinator, str(dp), code, [str(v) for v in options]))
+            cap = capability_for_code(code)
+            if has_climate and (cap in CLIMATE_OWNED_CAPABILITIES or code in CLIMATE_OWNED_CODES):
+                continue
+            options = enum_options(meta)
+            if options:
+                entities.append(TuyaBYOSelect(coordinator, str(dp), code, options))
     async_add_entities(entities)
 
 
@@ -44,9 +51,9 @@ class TuyaBYOSelect(CoordinatorEntity, SelectEntity):
         self.code = code
         self._attr_options = options
         self._attr_unique_id = f"{coordinator.device_id}_{dp}_select"
-        label = LABELS.get(code, code.replace("_", " "))
-        self._attr_name = f"{coordinator.name} {label}"
+        self._attr_name = f"{coordinator.name} {friendly_label(code)}"
         self._attr_device_info = coordinator.device_info
+        self._attr_extra_state_attributes = {"tuya_byo_capability": capability_for_code(code), "homekit_recommended": True}
 
     @property
     def current_option(self):

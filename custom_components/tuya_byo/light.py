@@ -23,6 +23,7 @@ class TuyaBYOLight(CoordinatorEntity, LightEntity):
         self._attr_unique_id = f"{coordinator.device_id}_light"
         self._attr_name = f"{coordinator.name} luz"
         self._attr_device_info = coordinator.device_info
+        self._attr_extra_state_attributes = {"homekit_recommended": True}
 
     @property
     def is_on(self):
