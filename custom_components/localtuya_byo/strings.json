@@ -1,0 +1,23 @@
+{
+  "title": "Tuya BYO Local",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Tuya BYO Local",
+        "description": "Introduce tus credenciales de Tuya IoT Cloud. La integración usará la nube solo para obtener local keys y mappings.",
+        "data": {
+          "region": "Región",
+          "client_id": "Client ID",
+          "client_secret": "Client Secret",
+          "user_id": "User ID/UID",
+          "username": "Nombre de la entrada"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "No se pudo conectar con Tuya Cloud.",
+      "invalid_auth": "Credenciales no válidas.",
+      "unknown": "Error desconocido. Revisa los registros."
+    }
+  }
+}
