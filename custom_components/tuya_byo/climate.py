@@ -316,7 +316,20 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
     def _build_swing_modes(self):
         if not self.dp_swing:
             return None
-        return list(SWING_LABEL_TO_VALUE.keys())
+        meta = self.coordinator.mapping.get(self.dp_swing, {})
+        values = meta.get("values", {}) if isinstance(meta, dict) else {}
+        options = []
+        if isinstance(values, dict):
+            rng = values.get("range") or values.get("options")
+            if isinstance(rng, list):
+                options = [str(v) for v in rng]
+        if str(meta.get("type", "")).lower() in {"boolean", "bool"} or not options:
+            # Boolean DP (or range unknown): a plain on/off toggle is all the
+            # device actually supports -- presenting the full 8-position list
+            # here would let the user pick a position the device will ignore
+            # or reject.
+            return ["Apagado", "Swing vertical"]
+        return [SWING_VALUE_TO_LABEL.get(str(v), str(v)) for v in options]
 
     @property
     def swing_mode(self):

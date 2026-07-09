@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.26.0
+
+- Fix: `_build_swing_modes()` always returned the full hardcoded 8-position list (Up Flow, Above Up Fix, etc.) as soon as any swing DP was found, regardless of what the device's real Enum range actually is -- unlike `_build_fan_modes()`, which correctly reads the real range from the resolved DP's metadata. This both risked sending positions the device doesn't support and didn't explain a device showing fewer options than expected. Now mirrors the fan-mode logic: real range if known, a plain Apagado/Swing-vertical toggle if the DP is Boolean or the range isn't known.
+
 ## 0.25.1
 
 - Revert: the persistent connection used for status polling since 0.24.0 caused intermittent disconnects and erratic state, especially noticeable when changing settings from the official Tuya app. This is consistent with the reason writes already avoided persistent sockets (some Tuya 3.5 HVAC modules don't tolerate a reused connection well) -- it evidently applies to reads on this hardware too. Reverted to a fresh connection per poll.
