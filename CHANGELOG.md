@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.29.0
+
+- Add: the ceiling fan's light now supports color-temperature control (warm-to-cool slider), matching the original Tuya app -- it's not dimmable in intensity on this device, only in color temperature. Wired to `temp_value` (falls back to `colour_temp`/`color_temp` aliases), reading the real min/max range from the resolved DP's own metadata. Tuya doesn't publish actual Kelvin bounds for this range (just a relative 0..max integer), so it's mapped onto the conventional 2700K-6500K warm/cool endpoints used by most tunable-white products.
+- Remove: `temp_value` no longer also shows as a separate raw number slider -- it's now owned by the light entity itself (one control instead of two, matching how sleep/swing were folded into climate.py).
+- Add: diagnostic debug-level log of the resolved DP mapping for light entities (dp_switch/dp_color_temp/min/max/raw mapping), mirroring the one climate.py already has. Enable debug logging for `custom_components.tuya_byo` and check Settings > System > Logs if the color control is missing or looks wrong on a specific device.
+
 ## 0.28.0
 
 - Fix: `windspeed` range `mid` (bare, no `middle` alias) showed as the untranslated raw string "mid" in the fan mode picker. Added the missing alias.

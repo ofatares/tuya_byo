@@ -7,12 +7,24 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DATA_COORDINATORS, DOMAIN, DP_FAN_SPEED, DP_TEMP_CURRENT, DP_TEMP_SET, DP_HUMIDITY_CURRENT
+from .const import (
+    DATA_COORDINATORS,
+    DOMAIN,
+    DP_FAN_SPEED,
+    DP_TEMP_CURRENT,
+    DP_TEMP_SET,
+    DP_TEMP_VALUE,
+    DP_HUMIDITY_CURRENT,
+)
 
+# temp_value/colour_temp/color_temp are owned by light.py now (surfaced as a
+# proper color-temperature control on the light entity itself, matching the
+# original Tuya app) instead of a separate raw 0..max number slider.
 EXCLUDED_CODES = {
     DP_TEMP_SET, DP_TEMP_CURRENT, DP_HUMIDITY_CURRENT, DP_FAN_SPEED,
     "fan_speed_enum", "fan_mode", "wind_speed", "windspeed",
     "temp_current_f", "temp_set_f",
+    DP_TEMP_VALUE, "colour_temp", "color_temp", "temp_value_v2",
 }
 LABELS = {
     "countdown_left_fan": "temporizador ventilador",
