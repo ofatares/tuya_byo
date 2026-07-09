@@ -65,7 +65,15 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
 
     def _set_dp_sync(self, dp: str | int, value: Any):
         dev = self._ensure_device_sync()
-        return dev.set_value(int(dp), value)
+        dp_int = int(dp)
+        # TinyTuya supports both methods depending on version/protocol.
+        # set_status is the canonical Tuya DP write; set_value is kept as fallback.
+        if hasattr(dev, "set_status"):
+            result = dev.set_status(value, switch=dp_int)
+        else:
+            result = dev.set_value(dp_int, value)
+        _LOGGER.debug("Tuya BYO set DP %s=%s on %s -> %s", dp, value, self.device_id, result)
+        return result
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:

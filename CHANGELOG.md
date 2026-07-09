@@ -1,10 +1,23 @@
 # Changelog
 
-## 0.18.0
+## 0.14.0
 
-- Adds expanded Tuya Cloud model/specification/status collection.
-- Parses nested Thing Model JSON strings returned by Tuya Cloud.
-- Saves non-sensitive diagnostics to `/config/tuya_byo/diagnostics.json`.
-- Improves Cloud mapping by merging dp_id, code, values, mode and status metadata.
-- Keeps the stable local TinyTuya transport and conservative entity generation.
+- Rename integration domain from `localtuya_byo` to `tuya_byo`.
+- Fix HACS icon handling by including `icon.png` at repository root and component level.
+- Clean normal UI: hide raw `dp_XXX` entities by default.
+- Hide Fahrenheit helper sensors when Celsius entities exist.
+- Improve capability filtering for switches, selects and numbers.
+- Keep DP5 as climate fan mode for Johnson / Midea Tuya modules.
 
+## 0.13.0
+
+- Add first Cloud Product Specification / Thing Model analyser.
+
+## 0.19.0
+
+- Rebuild HVAC control around confirmed Tuya AC DP model.
+- Fix local DP writes by using TinyTuya set_status with fallback.
+- Add extended Johnson/Midea fan modes: Auto, Mute, Low, Mid-Low, Mid, Mid-High, High, Turbo.
+- Add vertical swing support inside climate and ignore horizontal swing for this model.
+- Keep Celsius-only climate metadata from Tuya scale/min/max/step.
+- Add safer presets only when boolean sleep/eco/turbo capabilities are detected.

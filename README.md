@@ -1,19 +1,23 @@
 # Tuya BYO
 
-Tuya BYO is a Home Assistant custom integration for local control of Tuya / Smart Life devices using TinyTuya as local transport and Tuya Cloud only for device metadata, local keys and capability discovery.
+Tuya BYO is a Home Assistant custom integration for local control of Tuya / Smart Life devices.
 
-## v0.18.0
+It uses Tuya Cloud only to retrieve local keys and device model metadata. Commands and polling are local through TinyTuya.
 
-This version focuses on the Cloud knowledge layer:
+## Current goals
 
-- downloads device specifications/functions/status from several Tuya endpoints;
-- parses Thing Model responses, including nested JSON strings;
-- writes a diagnostic file to `/config/tuya_byo/diagnostics.json`;
-- improves mapping of DP IDs to real capabilities when Tuya Cloud exposes them;
-- keeps UI generation conservative to avoid breaking working controls.
+- Clean user-facing entities by default.
+- Hide raw `DP xxx` noise from normal UI.
+- Use Tuya Cloud Product Specification / Thing Model where available.
+- Create meaningful Home Assistant entities: climate, fan, light, switch, select, number and sensor.
+- Keep technical diagnostics separate from controls.
 
-## Important
+## Notes
 
-Do not commit your real `devices.json`, local keys or Tuya API secrets.
+The integration domain is now `tuya_byo`.
 
-a
+If you previously installed experimental builds using `localtuya_byo`, remove that integration and install Tuya BYO as a new integration.
+
+## 0.19.0 focus
+
+This build focuses on stable HVAC control for Johnson/Midea-style Tuya air conditioners: DP1 power, DP2 target temperature, DP3 current temperature, DP4 mode, DP5 fan mode and vertical swing where available.
