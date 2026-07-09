@@ -48,7 +48,7 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
         self.dp_target = coordinator.find_dp(DP_TEMP_SET)
         self.dp_current = coordinator.find_dp(DP_TEMP_CURRENT)
         self.dp_mode = coordinator.find_dp(DP_MODE)
-        self.dp_fan_mode = coordinator.find_dp(DP_FAN_SPEED)
+        self.dp_fan_mode = coordinator.find_dp(DP_FAN_SPEED, "fan_speed_enum", "wind_speed", "fan_mode", "windspeed")
         self._attr_fan_modes = self._build_fan_modes()
         meta = coordinator.mapping.get(self.dp_target, {}) if self.dp_target else {}
         vals = meta.get("values", {}) if isinstance(meta, dict) else {}

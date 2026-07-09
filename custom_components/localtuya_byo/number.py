@@ -9,7 +9,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DATA_COORDINATORS, DOMAIN, DP_FAN_SPEED, DP_TEMP_CURRENT, DP_TEMP_SET, DP_HUMIDITY_CURRENT
 
-EXCLUDED_CODES = {DP_TEMP_SET, DP_TEMP_CURRENT, DP_HUMIDITY_CURRENT, DP_FAN_SPEED, "temp_current_f", "temp_set_f"}
+EXCLUDED_CODES = {DP_TEMP_SET, DP_TEMP_CURRENT, DP_HUMIDITY_CURRENT, DP_FAN_SPEED, "fan_speed_enum", "temp_current_f", "temp_set_f"}
 LABELS = {
     "countdown_left_fan": "temporizador ventilador",
     "temp_value": "temperatura color luz",

@@ -73,7 +73,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         for dev_id, cloud_dev in api.device_list.items():
             cached = existing.get(dev_id, {})
             specs = await api.async_get_specifications(dev_id)
-            mapping = _mapping_from_specs(specs) or cached.get("mapping", {})
+            cloud_mapping = _mapping_from_specs(specs)
+            mapping = _merge_mappings(cached.get("mapping", {}), cloud_mapping)
             local_ip = private_ip(cloud_dev.get("ip")) or cached.get("ip", "")
             device = {
                 "id": dev_id,
@@ -85,6 +86,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "product_name": cloud_dev.get("product_name") or cloud_dev.get("productName") or cached.get("product_name") or "",
                 "product_id": cloud_dev.get("product_id") or cloud_dev.get("productId") or cached.get("product_id") or "",
                 "mapping": mapping,
+                "cloud_model": specs.get("functions", []),
+                "cloud_status": specs.get("status_values", {}),
             }
             devices.append(device)
 
@@ -92,22 +95,50 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return devices
 
 
+def _merge_mappings(base: dict[str, Any], extra: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Merge cached/local mapping with Cloud mapping, preserving dp IDs."""
+    merged: dict[str, dict[str, Any]] = {}
+    for source in (base or {}, extra or {}):
+        for dp, meta in source.items():
+            if not isinstance(meta, dict):
+                continue
+            current = merged.get(str(dp), {})
+            # Prefer real codes over diagnostic dp_ codes.
+            incoming_code = meta.get("code")
+            current_code = current.get("code")
+            if not current or (str(current_code).startswith("dp_") and incoming_code):
+                merged[str(dp)] = dict(meta)
+            else:
+                current.update({k: v for k, v in meta.items() if v not in (None, "", {})})
+                merged[str(dp)] = current
+    return merged
+
+
 def _mapping_from_specs(specs: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """Convert Tuya Cloud specifications/functions into DP mapping."""
+    """Convert Tuya Cloud specifications/functions into DP mapping when dp_id is available."""
     result: dict[str, dict[str, Any]] = {}
-    candidates = []
-    if isinstance(specs, dict):
-        candidates.extend(specs.get("functions") or [])
-        candidates.extend(specs.get("status") or [])
-    for item in candidates:
+    if not isinstance(specs, dict):
+        return result
+    for item in specs.get("functions") or []:
+        if not isinstance(item, dict):
+            continue
         dp_id = item.get("dp_id") or item.get("id") or item.get("dpId")
-        code = item.get("code") or item.get("name")
+        code = item.get("code") or item.get("identifier") or item.get("name")
         if dp_id is None or code is None:
             continue
         values = item.get("values") or {}
         if isinstance(values, str):
-            values = {"raw": values}
-        result[str(dp_id)] = {"code": code, "type": item.get("type", "Unknown"), "values": values}
+            try:
+                import json
+                values = json.loads(values)
+            except Exception:  # noqa: BLE001
+                values = {"raw": values}
+        result[str(dp_id)] = {
+            "code": str(code),
+            "name": item.get("name") or item.get("desc") or str(code),
+            "type": item.get("type", "Unknown"),
+            "values": values if isinstance(values, dict) else {"raw": values},
+        }
     return result
 
 class CannotConnect(Exception):

@@ -29,10 +29,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         for dp in coordinator.all_dps():
             meta = coordinator.dp_meta(dp)
             code = str(meta.get("code", f"dp_{dp}"))
-            # Known read-only sensors + unknown/live-only DPS as diagnostics.
-            if code in SENSOR_CODES or code.startswith("dp_"):
-                if code not in EXCLUDED_CODES:
-                    entities.append(TuyaBYOSensor(coordinator, str(dp), code))
+            # Known read-only sensors. Unknown dp_N values are intentionally hidden from
+            # the normal UI; they belong in diagnostics, not as user-facing entities.
+            if code in SENSOR_CODES and code not in EXCLUDED_CODES:
+                entities.append(TuyaBYOSensor(coordinator, str(dp), code))
     async_add_entities(entities)
 
 class TuyaBYOSensor(CoordinatorEntity, SensorEntity):

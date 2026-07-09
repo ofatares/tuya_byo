@@ -30,6 +30,9 @@ LABELS = {
     "swing": "swing",
     "swing_ud": "swing vertical",
     "swing_lr": "swing horizontal",
+    "switch_swing": "swing",
+    "switch_swing_ud": "swing vertical",
+    "switch_swing_lr": "swing horizontal",
     "self_clean": "autolimpieza",
     "anion": "ionizador",
 }

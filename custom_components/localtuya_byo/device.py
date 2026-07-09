@@ -31,6 +31,8 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
         self.key = config.get("key") or config.get("local_key")
         self.version = float(config.get("version") or config.get("protocol_version") or 3.5)
         self.mapping = config.get("mapping") or {}
+        self.cloud_model = config.get("cloud_model") or []
+        self.cloud_status = config.get("cloud_status") or {}
         self._device = None
         self._lock = asyncio.Lock()
 
@@ -70,7 +72,9 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
             async with self._lock:
                 status = await self.hass.async_add_executor_job(self._status_sync)
             dps = status.get("dps", status) if isinstance(status, dict) else {}
-            return {str(k): v for k, v in (dps or {}).items()}
+            data = {str(k): v for k, v in (dps or {}).items()}
+            self._enhance_mapping_from_cloud(data)
+            return data
         except Exception as ex:  # noqa: BLE001
             raise UpdateFailed(str(ex)) from ex
 
@@ -85,6 +89,65 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
             if meta.get("code") in wanted:
                 return str(dp)
         return None
+
+
+    def _enhance_mapping_from_cloud(self, data: dict[str, Any]) -> None:
+        """Infer missing DP metadata from Tuya Cloud model/status.
+
+        Best case: Cloud returns dp_id and we can map it exactly.
+        Fallback: Cloud returns only code/value; we map only if the current value
+        uniquely identifies one local DP. Ambiguous boolean values are left as dp_N.
+        """
+        # 1) Exact Cloud entries with dp_id.
+        for item in self.cloud_model or []:
+            if not isinstance(item, dict):
+                continue
+            dp_id = item.get("dp_id") or item.get("dpId") or item.get("id")
+            code = item.get("code") or item.get("identifier") or item.get("name")
+            if dp_id is None or not code:
+                continue
+            dp = str(dp_id)
+            self.mapping[dp] = {
+                **self.mapping.get(dp, {}),
+                "code": str(code),
+                "name": item.get("name") or item.get("desc") or str(code),
+                "type": item.get("type", self.mapping.get(dp, {}).get("type", "Unknown")),
+                "values": item.get("values") or self.mapping.get(dp, {}).get("values", {}),
+            }
+
+        # 2) Product-specific safe enrichments discovered from Cloud/local data.
+        product_id = str(self.config.get("product_id") or "")
+        category = str(self.config.get("category") or "")
+        if category == "kt" or product_id == "hrzr8mr0mtgfwwri":
+            # Johnson/Midea Tuya modules report DP5 as fan mode. User confirmed.
+            self.mapping.setdefault("5", {})
+            self.mapping["5"].update({
+                "code": "fan_speed_enum",
+                "name": "Fan speed",
+                "type": "Enum",
+                "values": {"range": ["auto", "low", "middle", "high", "strong"]},
+            })
+
+        # 3) Value-based unique matching for Cloud status entries with no dp_id.
+        mapped_codes = {str(meta.get("code")) for meta in self.mapping.values() if isinstance(meta, dict)}
+        unknown_dps = [dp for dp in data if str(self.mapping.get(dp, {}).get("code", f"dp_{dp}")).startswith("dp_")]
+        for code, value in (self.cloud_status or {}).items():
+            code = str(code)
+            if code in mapped_codes:
+                continue
+            candidates = [dp for dp in unknown_dps if data.get(dp) == value]
+            # Avoid guessing booleans when many values are False/True.
+            if len(candidates) != 1:
+                continue
+            dp = candidates[0]
+            typ = "Boolean" if isinstance(value, bool) else "Integer" if isinstance(value, int) else "String"
+            self.mapping[dp] = {
+                **self.mapping.get(dp, {}),
+                "code": code,
+                "name": code.replace("_", " ").title(),
+                "type": typ,
+                "values": {},
+            }
 
     def get_dp_value(self, dp: str | int, default=None):
         return (self.data or {}).get(str(dp), default)

@@ -1,4 +1,4 @@
-"""Minimal Tuya Cloud API client for Tuya BYO Local."""
+"""Minimal Tuya Cloud API client for Tuya BYO."""
 from __future__ import annotations
 
 import functools
@@ -8,6 +8,7 @@ import json
 import logging
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 
@@ -22,7 +23,73 @@ BASE_URLS = {
 
 
 def _sign(msg: str, key: str) -> str:
-    return hmac.new(msg=msg.encode("latin-1"), key=key.encode("latin-1"), digestmod=hashlib.sha256).hexdigest().upper()
+    return hmac.new(
+        msg=msg.encode("latin-1"),
+        key=key.encode("latin-1"),
+        digestmod=hashlib.sha256,
+    ).hexdigest().upper()
+
+
+def _normalise_values(values: Any) -> dict[str, Any]:
+    """Turn Tuya values strings into dictionaries when possible."""
+    if values is None:
+        return {}
+    if isinstance(values, dict):
+        return values
+    if isinstance(values, str):
+        try:
+            parsed = json.loads(values)
+            return parsed if isinstance(parsed, dict) else {"raw": values}
+        except Exception:  # noqa: BLE001
+            return {"raw": values}
+    return {"raw": values}
+
+
+def _normalise_spec_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalise Tuya function/status/model entries."""
+    dp_id = (
+        item.get("dp_id")
+        or item.get("dpId")
+        or item.get("dpid")
+        or item.get("id")
+    )
+    code = item.get("code") or item.get("identifier") or item.get("name")
+    name = item.get("name") or item.get("desc") or item.get("description") or code
+    typ = item.get("type") or item.get("data_type") or item.get("dataType") or item.get("propertyType") or "Unknown"
+    return {
+        "dp_id": str(dp_id) if dp_id is not None else None,
+        "code": str(code) if code is not None else None,
+        "name": str(name) if name is not None else None,
+        "type": str(typ),
+        "values": _normalise_values(item.get("values") or item.get("value_range") or item.get("valueRange")),
+        "raw": item,
+    }
+
+
+def _extract_items(payload: Any) -> list[dict[str, Any]]:
+    """Extract function/status/property entries from Tuya response payloads."""
+    items: list[dict[str, Any]] = []
+    if isinstance(payload, list):
+        for item in payload:
+            if isinstance(item, dict):
+                items.append(item)
+        return items
+    if not isinstance(payload, dict):
+        return items
+
+    for key in ("functions", "status", "properties", "services", "model", "result"):
+        value = payload.get(key)
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    # Thing model can nest properties inside services.
+                    if key == "services" and isinstance(item.get("properties"), list):
+                        items.extend(x for x in item["properties"] if isinstance(x, dict))
+                    else:
+                        items.append(item)
+        elif isinstance(value, dict):
+            items.extend(_extract_items(value))
+    return items
 
 
 class TuyaCloudApi:
@@ -42,8 +109,14 @@ class TuyaCloudApi:
         payload += method + "\n"
         payload += hashlib.sha256(body.encode("utf-8")).hexdigest()
         payload += "\n"
-        payload += "".join(f"{key}:{headers[key]}\n" for key in headers.get("Signature-Headers", "").split(":") if key in headers)
-        payload += "\n/" + url.split("//", 1)[-1].split("/", 1)[-1]
+        payload += "".join(
+            f"{key}:{headers[key]}\n"
+            for key in headers.get("Signature-Headers", "").split(":")
+            if key in headers
+        )
+        payload += "\n" + (urlsplit(url).path or url.split("?", 1)[0])
+        if "?" in url:
+            payload += "?" + url.split("?", 1)[1]
         return payload
 
     async def request(self, method: str, url: str, body: Any | None = None, headers: dict[str, str] | None = None):
@@ -88,19 +161,66 @@ class TuyaCloudApi:
         self.device_list = {dev["id"]: dev for dev in data.get("result", [])}
         return "ok"
 
+    async def _get_json_result(self, url: str) -> Any | None:
+        try:
+            resp = await self.request("GET", url)
+            if not resp.ok:
+                _LOGGER.debug("Tuya Cloud %s returned HTTP %s", url, resp.status_code)
+                return None
+            data = resp.json()
+            if not data.get("success"):
+                _LOGGER.debug("Tuya Cloud %s failed: %s %s", url, data.get("code"), data.get("msg"))
+                return None
+            return data.get("result")
+        except Exception as ex:  # noqa: BLE001
+            _LOGGER.debug("Tuya Cloud request failed for %s: %s", url, ex)
+            return None
+
+    async def async_get_device_description(self, device_id: str) -> dict[str, Any]:
+        """Fetch all useful Cloud metadata for one device.
+
+        We intentionally call several Tuya endpoints because different projects/products
+        expose different shapes. The merger keeps raw payloads for diagnostics and a
+        normalised list for automatic entity generation.
+        """
+        endpoints = {
+            "specification_iot03": f"/v1.0/iot-03/devices/{device_id}/specification",
+            "functions_iot03": f"/v1.0/iot-03/devices/{device_id}/functions",
+            "status_iot03": f"/v1.0/iot-03/devices/{device_id}/status",
+            "specifications_v11": f"/v1.1/devices/{device_id}/specifications",
+            "specifications_v10": f"/v1.0/devices/{device_id}/specifications",
+            "functions_v10": f"/v1.0/devices/{device_id}/functions",
+            "status_v10": f"/v1.0/devices/{device_id}/status",
+            "thing_model_v20": f"/v2.0/cloud/thing/{device_id}/model",
+            "thing_shadow_v20": f"/v2.0/cloud/thing/{device_id}/shadow/properties",
+        }
+        raw: dict[str, Any] = {}
+        items: list[dict[str, Any]] = []
+        statuses: dict[str, Any] = {}
+        for name, url in endpoints.items():
+            result = await self._get_json_result(url)
+            if result is None:
+                continue
+            raw[name] = result
+            extracted = _extract_items(result)
+            for item in extracted:
+                norm = _normalise_spec_item(item)
+                if norm.get("code"):
+                    items.append(norm)
+                    if "value" in item:
+                        statuses[norm["code"]] = item.get("value")
+            # Some status endpoints return [{code,value}] directly.
+            if isinstance(result, list):
+                for item in result:
+                    if isinstance(item, dict) and item.get("code") and "value" in item:
+                        statuses[str(item["code"])] = item.get("value")
+        return {"raw": raw, "items": items, "status": statuses}
+
     async def async_get_specifications(self, device_id: str) -> dict[str, Any]:
-        for url in (
-            f"/v1.1/devices/{device_id}/specifications",
-            f"/v1.0/devices/{device_id}/specifications",
-            f"/v1.0/devices/{device_id}/functions",
-        ):
-            try:
-                resp = await self.request("GET", url)
-                if not resp.ok:
-                    continue
-                data = resp.json()
-                if data.get("success"):
-                    return data.get("result") or {}
-            except Exception as ex:  # noqa: BLE001
-                _LOGGER.debug("Spec request failed for %s at %s: %s", device_id, url, ex)
-        return {}
+        """Backward-compatible wrapper."""
+        description = await self.async_get_device_description(device_id)
+        return {
+            "functions": description.get("items", []),
+            "status_values": description.get("status", {}),
+            "raw": description.get("raw", {}),
+        }

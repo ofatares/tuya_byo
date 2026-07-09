@@ -1,14 +1,13 @@
 # Changelog
 
+## 0.13.0
+
+- Add Tuya Cloud Product Specification/Thing Model fetcher.
+- Merge Cloud model, Cloud status and local DPS into a richer internal model.
+- Detect Johnson/Midea DP5 as climate fan mode without manual testing.
+- Hide raw diagnostic dp_N sensors from the normal UI.
+- Keep unknown/ambiguous booleans out of controls until the Cloud API gives an exact DP mapping.
+
 ## 0.12.0
 
-- Adds live-DP inspector entities for unknown DPS (`dp_101`, `dp_102`, etc.).
-- Preserves and exposes live DPS even when the Tuya Cloud model does not name them.
-- Adds extra automatic switches for boolean/switch-like functions such as sleep, mute, display, eco, turbo, swing, clean, ionizer and beep when present.
-- Keeps unknown numeric DPS as sensors instead of writable controls to avoid unsafe commands.
-- Improves fan mode handling for climate devices.
-- Keeps TinyTuya device creation and polling inside Home Assistant executor.
-
-## 0.11.0
-
-- Fixes connectivity regression with TinyTuya executor handling.
+- Inspector release.
