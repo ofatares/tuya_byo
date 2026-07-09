@@ -1,4 +1,4 @@
-# Tuya BYO
+# Tuya BYO v 2.0
 
 A Home Assistant custom integration for local Tuya / Smart Life devices using TinyTuya.
 
