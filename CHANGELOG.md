@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.28.0
+
+- Fix: `windspeed` range `mid` (bare, no `middle` alias) showed as the untranslated raw string "mid" in the fan mode picker. Added the missing alias.
+- Add: `sleep` now surfaces as a climate preset (Ninguno/Sleep/Sleep (personas mayores)/Sleep (niños)) instead of a separate select entity, so it's visible while operating the AC.
+- Add: `up_down_sweep` (native vertical swing) now shows Spanish labels instead of raw numbers (Apagado/Vaivén completo/Solo zona superior/Solo zona inferior), and `up_down_freeze` (vertical swing fixed position) shows Sin fijar/Arriba/Zona superior/Zona media/Zona inferior/Abajo. Both are best-effort translations inferred from the equivalent named options in Tuya's own app -- Tuya's Cloud API doesn't publish human labels for these numeric ranges, so please verify each position against the physical unit.
+- Hide: `left_right_sweep` and `left_right_freeze` (horizontal swing -- confirmed not functional on these units), plus `airquality`, `kwh`, `money`, `style`, `temp_unit_convert`, and `wind`, which are internal/administrative DPs with no real user-facing purpose in Home Assistant.
+- Add icons to the remaining select entities (aire fresco, nivel eco, swing vertical posición fija).
+- Note: Home Assistant's built-in climate more-info dialog doesn't support per-option icons for the fan_mode/swing_mode dropdowns at the entity level -- this is a frontend limitation that applies to every integration, not something fixable from here. A custom Lovelace card would be needed for that specific visual.
+
 ## 0.27.0
 
 - Fix (the real cause of "swing y modos siguen sin salir"): confirmed from the user's debug log that their device's real mapping uses Tuya's lowercase Things-Data-Model type strings (`'enum'`, `'bool'`, `'value'`), not the capitalised convention (`'Enum'`, `'Boolean'`, `'Integer'`) used elsewhere in this codebase. `select.py`'s gate compared with `==` on the exact case, so it silently created zero entities for every enum DP -- sleep, fresh_air, energy level, and all four swing sweep/freeze DPs were present and correctly typed in the mapping the whole time, just never surfaced. Fixed to compare case-insensitively (matches how `switch.py` already did it). Also made `number.py`'s type check case-insensitive for the same reason.

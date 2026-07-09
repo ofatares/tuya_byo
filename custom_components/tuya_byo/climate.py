@@ -66,6 +66,7 @@ FAN_VALUE_TO_LABEL = {v: k for k, v in FAN_LABEL_TO_VALUE.items()}
 # Some Tuya products use these aliases internally.
 FAN_VALUE_TO_LABEL.update({
     "middle": "Mid",
+    "mid": "Mid",
     "medium": "Mid",
     "great": "Turbo",
     "strong": "Turbo",
@@ -86,6 +87,32 @@ SWING_LABEL_TO_VALUE = {
     "Down Fix": "down_fix",
 }
 SWING_VALUE_TO_LABEL = {v: k for k, v in SWING_LABEL_TO_VALUE.items()}
+
+# Some devices (confirmed via debug log) report vertical sweep as plain
+# numeric positions on "up_down_sweep" instead of the semantic strings above.
+# Tuya's Cloud API doesn't publish human labels for these, so this mapping is
+# inferred from the count/order of the equivalent options in Tuya's own app
+# ("Up-Down Flow", "Up Flow", "Down Flow" -- 3 named states + an implicit
+# off/base state = 4, matching the DP's range). Verify against the physical
+# unit and adjust if a position doesn't match.
+SWEEP_VALUE_TO_LABEL = {
+    "0": "Apagado",
+    "1": "Vaivén completo",
+    "2": "Solo zona superior",
+    "3": "Solo zona inferior",
+}
+SWEEP_LABEL_TO_VALUE = {v: k for k, v in SWEEP_VALUE_TO_LABEL.items()}
+
+# "sleep" DP values, seen on Gree/Midea-derived Tuya AC modules: a sleep
+# temperature curve selector, not a plain on/off. Fairly standard/well-known
+# convention, but still worth confirming against the physical unit.
+SLEEP_VALUE_TO_LABEL = {
+    "off": "Ninguno",
+    "normal": "Sleep",
+    "old": "Sleep (personas mayores)",
+    "child": "Sleep (niños)",
+}
+SLEEP_LABEL_TO_VALUE = {v: k for k, v in SLEEP_VALUE_TO_LABEL.items()}
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -171,6 +198,10 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
             "air_flow",
             "up_down_sweep",
         )
+        # "sleep" (temperature-curve selector, not on/off) surfaces inside the
+        # climate card as a preset instead of a separate select entity, so
+        # it's visible while actually operating the AC.
+        self.dp_sleep = coordinator.find_dp("sleep")
 
         self.scale = self._target_scale()
         self._setup_temperature_limits()
@@ -180,7 +211,7 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
         # this in Settings > System > Logs if a control is missing/wrong.
         _LOGGER.debug(
             "%s: dp_switch=%s dp_mode=%s dp_target=%s dp_current=%s "
-            "dp_fan_mode=%s dp_swing=%s raw_mapping=%s raw_data=%s",
+            "dp_fan_mode=%s dp_swing=%s dp_sleep=%s raw_mapping=%s raw_data=%s",
             coordinator.name,
             self.dp_switch,
             self.dp_mode,
@@ -188,6 +219,7 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
             self.dp_current,
             self.dp_fan_mode,
             self.dp_swing,
+            self.dp_sleep,
             coordinator.mapping,
             coordinator.data,
         )
@@ -199,6 +231,9 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
         self._attr_swing_modes = self._build_swing_modes()
         if self._attr_swing_modes:
             features |= ClimateEntityFeature.SWING_MODE
+        self._attr_preset_modes = self._build_preset_modes()
+        if self._attr_preset_modes and self._attr_preset_modes != [PRESET_NONE]:
+            features |= ClimateEntityFeature.PRESET_MODE
         self._attr_supported_features = features
 
     def _dp_meta_values(self, dp: str | None) -> dict:
@@ -314,6 +349,18 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
             return
         await self.coordinator.async_set_dp(self.dp_fan_mode, _value_from_label(fan_mode, FAN_LABEL_TO_VALUE))
 
+    def _swing_tables(self) -> tuple[dict[str, str], dict[str, str]]:
+        """Pick the (label->value, value->label) tables for the resolved swing DP.
+
+        Devices whose swing DP is coded "up_down_sweep" report plain numeric
+        positions instead of Tuya's usual semantic strings (up/down/up_fix/
+        etc), so they need a different translation table.
+        """
+        meta = self.coordinator.mapping.get(self.dp_swing, {}) if self.dp_swing else {}
+        if isinstance(meta, dict) and str(meta.get("code")) == "up_down_sweep":
+            return SWEEP_LABEL_TO_VALUE, SWEEP_VALUE_TO_LABEL
+        return SWING_LABEL_TO_VALUE, SWING_VALUE_TO_LABEL
+
     def _build_swing_modes(self):
         if not self.dp_swing:
             return None
@@ -330,7 +377,8 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
             # here would let the user pick a position the device will ignore
             # or reject.
             return ["Apagado", "Swing vertical"]
-        return [SWING_VALUE_TO_LABEL.get(str(v), str(v)) for v in options]
+        _, value_to_label = self._swing_tables()
+        return [value_to_label.get(str(v), str(v)) for v in options]
 
     @property
     def swing_mode(self):
@@ -339,7 +387,8 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
         value = self.coordinator.get_dp_value(self.dp_swing)
         if isinstance(value, bool):
             return "Swing vertical" if value else "Apagado"
-        return SWING_VALUE_TO_LABEL.get(str(value), str(value)) if value is not None else "Apagado"
+        _, value_to_label = self._swing_tables()
+        return value_to_label.get(str(value), str(value)) if value is not None else "Apagado"
 
     async def async_set_swing_mode(self, swing_mode: str):
         if not self.dp_swing:
@@ -348,7 +397,30 @@ class TuyaBYOClimate(CoordinatorEntity, ClimateEntity):
         if isinstance(current, bool):
             await self.coordinator.async_set_dp(self.dp_swing, swing_mode != "Apagado")
         else:
-            await self.coordinator.async_set_dp(self.dp_swing, _value_from_label(swing_mode, SWING_LABEL_TO_VALUE))
+            label_to_value, _ = self._swing_tables()
+            await self.coordinator.async_set_dp(self.dp_swing, _value_from_label(swing_mode, label_to_value))
+
+    def _build_preset_modes(self):
+        if not self.dp_sleep:
+            return [PRESET_NONE]
+        meta = self.coordinator.mapping.get(self.dp_sleep, {})
+        values = meta.get("values", {}) if isinstance(meta, dict) else {}
+        rng = values.get("range") if isinstance(values, dict) else None
+        if not isinstance(rng, list) or not rng:
+            return [PRESET_NONE]
+        return [SLEEP_VALUE_TO_LABEL.get(str(v), str(v)) for v in rng]
+
+    @property
+    def preset_mode(self):
+        if not self.dp_sleep:
+            return PRESET_NONE
+        value = self.coordinator.get_dp_value(self.dp_sleep)
+        return SLEEP_VALUE_TO_LABEL.get(str(value), str(value)) if value is not None else PRESET_NONE
+
+    async def async_set_preset_mode(self, preset_mode: str):
+        if not self.dp_sleep:
+            return
+        await self.coordinator.async_set_dp(self.dp_sleep, _value_from_label(preset_mode, SLEEP_LABEL_TO_VALUE))
 
     async def async_set_hvac_mode(self, hvac_mode):
         # OFF must write the power DP only. Do not write "off" to mode DP.

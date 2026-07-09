@@ -17,21 +17,52 @@ LABELS = {
     "fan_speed_enum": "velocidad ventilador",
     "fan_mode": "modo ventilador",
     "wind_speed": "velocidad ventilador",
-    "sleep": "modo sleep",
     "fresh_air": "aire fresco",
     "energy": "nivel eco",
-    "up_down_sweep": "swing vertical (barrido)",
-    "left_right_sweep": "swing horizontal (barrido)",
     "up_down_freeze": "swing vertical (posición fija)",
-    "left_right_freeze": "swing horizontal (posición fija)",
 }
 
-# "up_down_sweep" is also wired directly into the climate entity's native
-# swing_mode (see climate.py), so it's excluded here to avoid a duplicate
-# entity for the same DP.
+ICONS = {
+    "fresh_air": "mdi:air-filter",
+    "energy": "mdi:leaf",
+    "up_down_freeze": "mdi:arrow-up-down-bold-outline",
+    "fan_speed_enum": "mdi:fan",
+    "fan_mode": "mdi:fan",
+    "wind_speed": "mdi:fan",
+}
+
+# Per-code raw-value -> Spanish label overrides, for DPs whose options are
+# plain numbers/codes with no human meaning published by Tuya. Best-effort
+# inferred from the equivalent named options in Tuya's own app; verify
+# against the physical unit before trusting a specific position.
+VALUE_LABELS: dict[str, dict[str, str]] = {
+    "up_down_freeze": {
+        "0": "Sin fijar",
+        "1": "Arriba",
+        "2": "Zona superior",
+        "3": "Zona media",
+        "4": "Zona inferior",
+        "5": "Abajo",
+    },
+}
+
+# "up_down_sweep" (vertical swing) and "sleep" are wired directly into the
+# climate entity (native swing_mode / preset_mode, see climate.py), so they're
+# excluded here to avoid a duplicate entity for the same DP.
 CLIMATE_OWNED_CODES = {
     DP_MODE, "fan_speed", "fan_speed_enum", "fan_mode", "wind_speed", "windspeed",
-    "up_down_sweep",
+    "up_down_sweep", "sleep",
+}
+
+# Internal/administrative or non-functional-on-these-models DPs that aren't
+# useful as user-facing controls: billing/display config on the unit's own
+# panel (kwh, money, style), a read-only-ish air quality description better
+# suited as a sensor, the device's own display temperature unit (HA already
+# shows Celsius regardless), an unidentified "wind" duplicate, and horizontal
+# swing/freeze which the user confirmed doesn't work on these units.
+EXCLUDED_CODES = {
+    "airquality", "kwh", "money", "style", "temp_unit_convert", "wind",
+    "left_right_sweep", "left_right_freeze",
 }
 
 
@@ -41,7 +72,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         for dp in coordinator.all_dps():
             meta = coordinator.dp_meta(dp)
             code = str(meta.get("code", f"dp_{dp}"))
-            if code.startswith("dp_"):
+            if code.startswith("dp_") or code in EXCLUDED_CODES:
                 continue
             values = meta.get("values", {}) if isinstance(meta, dict) else {}
             options = values.get("range") if isinstance(values, dict) else None
@@ -62,16 +93,23 @@ class TuyaBYOSelect(CoordinatorEntity, SelectEntity):
         super().__init__(coordinator)
         self.dp = dp
         self.code = code
-        self._attr_options = options
+        self._value_to_label = VALUE_LABELS.get(code, {})
+        self._label_to_value = {v: k for k, v in self._value_to_label.items()}
+        self._attr_options = [self._value_to_label.get(o, o) for o in options]
         self._attr_unique_id = f"{coordinator.device_id}_{dp}_select"
         label = LABELS.get(code, code.replace("_", " "))
         self._attr_name = f"{coordinator.name} {label}"
         self._attr_device_info = coordinator.device_info
+        icon = ICONS.get(code)
+        if icon:
+            self._attr_icon = icon
 
     @property
     def current_option(self):
         value = self.coordinator.get_dp_value(self.dp)
-        return str(value) if value is not None else None
+        if value is None:
+            return None
+        return self._value_to_label.get(str(value), str(value))
 
     async def async_select_option(self, option: str) -> None:
-        await self.coordinator.async_set_dp(self.dp, option)
+        await self.coordinator.async_set_dp(self.dp, self._label_to_value.get(option, option))
