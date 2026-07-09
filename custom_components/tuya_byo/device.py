@@ -86,11 +86,23 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
         if isinstance(result, dict):
             if result.get("Error") or result.get("error"):
                 return False
+            # Bug fixed here: an explicit success/result=False is the device
+            # unambiguously rejecting the command. This must be checked
+            # *before* the permissive fallback below, otherwise
+            # {"success": false} was being read as a success -- HA would show
+            # the new state while the physical unit never actually changed.
+            if result.get("success") is False:
+                return False
+            if result.get("result") is False:
+                return False
             if result.get("success") is True:
                 return True
             if result.get("result") is True:
                 return True
-            # TinyTuya often returns a dict with dps/devId on success.
+            # TinyTuya often returns a dict with dps/devId on success, or just
+            # the raw dps echo with no wrapper key at all (e.g. {"20": True}).
+            # Kept permissive here (unlike the explicit False checks above)
+            # because this shape is known to occur on working writes.
             if "dps" in result or "devId" in result or "dps" in str(result):
                 return True
         return True

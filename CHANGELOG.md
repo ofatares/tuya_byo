@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.30.1
+
+- Fix: `_looks_success()` (used to decide whether a local write actually landed, and which write path to prefer next time) fell through to `return True` for any dict response it didn't specifically recognise -- including an explicit `{"success": false}` or `{"result": false}` from the device rejecting the command. This meant a rejected write could still be reported as successful, HA would show the new state optimistically, and the physical unit would silently stay unchanged. Added explicit checks for `success`/`result` being `False`, ahead of the permissive fallback. The fallback itself is intentionally left permissive (still defaults to success for unrecognised dict shapes) because some working writes return a bare DPS echo (e.g. `{"20": true}`) with no `success`/`dps`/`devId` key at all -- switching to fail-closed there would have flagged known-good writes as failures.
+
 ## 0.30.0
 
 - Add: `up_down_freeze` (vertical swing fixed/parked position) is now folded into the climate entity's native `swing_mode` alongside the sweep DP, instead of a separate select entity -- one control ("Apagado", "Vaivén completo", ..., "Fijo: Arriba", "Fijo: Zona superior", ...) visible right where the AC is already being operated. Picking a fixed position now writes both DPs together (sweep off + position set) so the unit doesn't briefly show a contradictory state.
