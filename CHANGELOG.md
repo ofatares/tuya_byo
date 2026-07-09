@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.24.0
+
+- Perf: status polling now reuses one persistent local connection instead of opening a brand-new one (full TCP + session-key handshake) every single poll. This was the main reason the integration felt slower than the official Tuya app and lagged behind changes made from the mobile app. Writes still use a fresh connection per attempt on purpose (see 0.21.0 — reusing sockets for writes previously caused some Tuya 3.5 HVAC modules to ignore commands), so this only speeds up reads.
+- Perf: writes now remember which command style (`set_status`/`set_value`/`set_multiple_values`) actually worked last time for each device and try it first, instead of always attempting them in a fixed order. In the common case this cuts a write down to a single attempt.
+- Poll interval shortened from 15s to 6s now that polling is cheap, so changes made from the official app should show up in Home Assistant noticeably faster.
+
 ## 0.23.0
 
 - Perf: turning the unit on with a specific HVAC mode used to issue two sequential local writes (power DP, then mode DP), each opening its own connection and forcing its own status refresh — roughly doubling how long "turn on" takes compared to a single-DP write. Added `TuyaBYODevice.async_set_dps()` to batch both DPs into one local command with a single status refresh at the end; `async_set_hvac_mode` now uses it.

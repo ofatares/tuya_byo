@@ -12,7 +12,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 _LOGGER = logging.getLogger(__name__)
-SCAN_INTERVAL = timedelta(seconds=15)
+# A fresh, non-persistent connection has a real handshake cost (TCP connect +
+# session-key negotiation on protocol 3.4/3.5), which is why every poll used
+# to feel sluggish compared to the official app (which keeps one connection
+# open). Status polling now reuses a persistent connection (see
+# _get_read_device_sync), which makes frequent polling cheap, so we can afford
+# a much shorter interval and still reflect changes made from the Tuya app
+# quickly without hammering the device with new handshakes every few seconds.
+SCAN_INTERVAL = timedelta(seconds=6)
 
 
 class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
@@ -36,6 +43,18 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
         self.cloud_status = config.get("cloud_status") or {}
         self._device = None
         self._lock = asyncio.Lock()
+        # Persistent connection used ONLY for read-only status polling (see
+        # _get_read_device_sync). Writes deliberately keep using a fresh
+        # connection per attempt (see _make_device_sync) -- a previous version
+        # of this integration reused sockets for writes too and some Tuya 3.5
+        # HVAC modules ignored or lost commands as a result. Reusing the
+        # connection for reads only gives most of the speed benefit without
+        # touching that known write-reliability issue.
+        self._read_device = None
+        # Remembers which write path (set_status/set_value/set_multiple_values)
+        # actually worked last time for this device, so subsequent writes try
+        # it first instead of always attempting them in a fixed order.
+        self._preferred_write_path: str | None = None
 
     @property
     def identifiers(self):
@@ -64,9 +83,30 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
         dev.set_socketPersistent(False)
         return dev
 
+    def _get_read_device_sync(self, fresh: bool = False):
+        """Return the cached persistent connection used for status polling.
+
+        Creating a new TinyTuya device object per poll re-does the full
+        handshake every time, which is the main reason polling (and therefore
+        picking up changes made from the official Tuya app) felt much slower
+        than it should. Reusing one connection removes that cost; if it ever
+        breaks (device rebooted, briefly dropped Wi-Fi, etc.) we transparently
+        reconnect on the next call.
+        """
+        if fresh or self._read_device is None:
+            dev = tinytuya.Device(self.device_id, self.host, self.key)
+            dev.set_version(self.version)
+            dev.set_socketPersistent(True)
+            self._read_device = dev
+        return self._read_device
+
     def _status_sync(self):
-        dev = self._make_device_sync()
-        return dev.status()
+        try:
+            return self._get_read_device_sync().status()
+        except Exception as ex:  # noqa: BLE001
+            _LOGGER.debug("Persistent status connection failed (%s), reconnecting", ex)
+            self._read_device = None
+            return self._get_read_device_sync(fresh=True).status()
 
     @staticmethod
     def _looks_success(result: Any) -> bool:
@@ -85,6 +125,25 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
                 return True
         return True
 
+    def _write_path_attempts(self, dev, dp_int: int, value: Any) -> dict[str, Any]:
+        """Return {path_name: callable} for the three write styles, in the
+        order they should be tried this time (preferred path first)."""
+        paths = {
+            "set_status": lambda: dev.set_status(value, switch=dp_int),
+            "set_value": lambda: dev.set_value(dp_int, value),
+            "set_multiple_values": (
+                (lambda: dev.set_multiple_values({dp_int: value}))
+                if hasattr(dev, "set_multiple_values")
+                else None
+            ),
+        }
+        preferred = self._preferred_write_path
+        if preferred and paths.get(preferred):
+            ordered = {preferred: paths[preferred]}
+            ordered.update({k: v for k, v in paths.items() if k != preferred})
+            return ordered
+        return paths
+
     def _set_dp_sync(self, dp: str | int, value: Any):
         """Write a single DP using all safe TinyTuya command paths.
 
@@ -95,42 +154,33 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
         fallback attempts avoids hammering the module's local socket handler with
         back-to-back reconnects, which on some firmwares makes things worse
         (slower responses, or the device briefly refusing new connections).
+
+        Once a path is known to work for this device, it's tried first on
+        subsequent writes, so the common case is a single attempt instead of
+        always working through set_status -> set_value -> set_multiple_values.
         """
         dp_int = int(dp)
         errors: list[str] = []
+        dev = self._make_device_sync()
+        attempts = self._write_path_attempts(dev, dp_int, value)
 
-        # Path 1: TinyTuya status command.
-        try:
-            dev = self._make_device_sync()
-            result = dev.set_status(value, switch=dp_int)
-            if self._looks_success(result):
-                return result
-            errors.append(f"set_status returned {result!r}")
-        except Exception as ex:  # noqa: BLE001
-            errors.append(f"set_status failed: {ex}")
-        time.sleep(0.3)
-
-        # Path 2: TinyTuya value command.
-        try:
-            dev = self._make_device_sync()
-            result = dev.set_value(dp_int, value)
-            if self._looks_success(result):
-                return result
-            errors.append(f"set_value returned {result!r}")
-        except Exception as ex:  # noqa: BLE001
-            errors.append(f"set_value failed: {ex}")
-        time.sleep(0.3)
-
-        # Path 3: multi-value command if present in this TinyTuya version.
-        try:
-            dev = self._make_device_sync()
-            if hasattr(dev, "set_multiple_values"):
-                result = dev.set_multiple_values({dp_int: value})
+        first = True
+        for name, call in attempts.items():
+            if call is None:
+                continue
+            if not first:
+                time.sleep(0.3)
+                dev = self._make_device_sync()
+                call = self._write_path_attempts(dev, dp_int, value)[name]
+            first = False
+            try:
+                result = call()
                 if self._looks_success(result):
+                    self._preferred_write_path = name
                     return result
-                errors.append(f"set_multiple_values returned {result!r}")
-        except Exception as ex:  # noqa: BLE001
-            errors.append(f"set_multiple_values failed: {ex}")
+                errors.append(f"{name} returned {result!r}")
+            except Exception as ex:  # noqa: BLE001
+                errors.append(f"{name} failed: {ex}")
 
         raise RuntimeError("; ".join(errors))
 
