@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.26.1
+
+- Fix: `TuyaBYOLight` (the panel LED entity, DP `switch_led`) never declared `supported_color_modes`, which modern Home Assistant requires even for plain on/off lights. This raised `HomeAssistantError: ... does not set supported color modes` during entity registration, crashing the light platform setup for that config entry. Added `ColorMode.ONOFF` as the sole supported mode.
+
 ## 0.26.0
 
 - Fix: `_build_swing_modes()` always returned the full hardcoded 8-position list (Up Flow, Above Up Fix, etc.) as soon as any swing DP was found, regardless of what the device's real Enum range actually is -- unlike `_build_fan_modes()`, which correctly reads the real range from the resolved DP's metadata. This both risked sending positions the device doesn't support and didn't explain a device showing fewer options than expected. Now mirrors the fan-mode logic: real range if known, a plain Apagado/Swing-vertical toggle if the DP is Boolean or the range isn't known.
