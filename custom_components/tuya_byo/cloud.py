@@ -1,4 +1,10 @@
-"""Minimal Tuya Cloud API client for Tuya BYO."""
+"""Tuya Cloud API client for Tuya BYO.
+
+This module intentionally asks Tuya Cloud for several model/specification/status
+endpoints and normalises the different response shapes. Tuya products are not
+consistent across regions or product categories, so the integration must be
+forgiving and diagnostic-friendly.
+"""
 from __future__ import annotations
 
 import functools
@@ -30,64 +36,129 @@ def _sign(msg: str, key: str) -> str:
     ).hexdigest().upper()
 
 
+def _json_loads_maybe(value: Any) -> Any:
+    """Parse a JSON string when Tuya returns JSON encoded as text."""
+    if not isinstance(value, str):
+        return value
+    stripped = value.strip()
+    if not stripped or stripped[0] not in "[{\"":
+        return value
+    try:
+        return json.loads(stripped)
+    except Exception:  # noqa: BLE001
+        return value
+
+
 def _normalise_values(values: Any) -> dict[str, Any]:
     """Turn Tuya values strings into dictionaries when possible."""
+    values = _json_loads_maybe(values)
     if values is None:
         return {}
     if isinstance(values, dict):
         return values
-    if isinstance(values, str):
-        try:
-            parsed = json.loads(values)
-            return parsed if isinstance(parsed, dict) else {"raw": values}
-        except Exception:  # noqa: BLE001
-            return {"raw": values}
+    if isinstance(values, list):
+        return {"range": values}
     return {"raw": values}
 
 
 def _normalise_spec_item(item: dict[str, Any]) -> dict[str, Any]:
     """Normalise Tuya function/status/model entries."""
+    item = _json_loads_maybe(item)
+    if not isinstance(item, dict):
+        return {}
+
     dp_id = (
         item.get("dp_id")
         or item.get("dpId")
         or item.get("dpid")
         or item.get("id")
+        or item.get("pid")
     )
-    code = item.get("code") or item.get("identifier") or item.get("name")
-    name = item.get("name") or item.get("desc") or item.get("description") or code
-    typ = item.get("type") or item.get("data_type") or item.get("dataType") or item.get("propertyType") or "Unknown"
+    code = (
+        item.get("code")
+        or item.get("identifier")
+        or item.get("property")
+        or item.get("name")
+        or item.get("nameCode")
+    )
+    name = item.get("name") or item.get("desc") or item.get("description") or item.get("label") or code
+    typ = (
+        item.get("type")
+        or item.get("data_type")
+        or item.get("dataType")
+        or item.get("propertyType")
+        or item.get("schemaType")
+        or "Unknown"
+    )
+    mode = item.get("mode") or item.get("accessMode") or item.get("access_mode") or item.get("rwFlag")
+    value = item.get("value") if "value" in item else item.get("defaultValue")
     return {
         "dp_id": str(dp_id) if dp_id is not None else None,
         "code": str(code) if code is not None else None,
         "name": str(name) if name is not None else None,
         "type": str(typ),
-        "values": _normalise_values(item.get("values") or item.get("value_range") or item.get("valueRange")),
+        "mode": str(mode) if mode is not None else None,
+        "value": value,
+        "values": _normalise_values(
+            item.get("values")
+            or item.get("value_range")
+            or item.get("valueRange")
+            or item.get("schema")
+            or item.get("property")
+        ),
         "raw": item,
     }
 
 
 def _extract_items(payload: Any) -> list[dict[str, Any]]:
-    """Extract function/status/property entries from Tuya response payloads."""
+    """Extract function/status/property entries from Tuya response payloads.
+
+    Tuya endpoints return many different shapes. Some responses include a JSON
+    string under keys such as ``model`` or ``schema``. This extractor recursively
+    parses those strings and walks common containers.
+    """
+    payload = _json_loads_maybe(payload)
     items: list[dict[str, Any]] = []
+
     if isinstance(payload, list):
         for item in payload:
+            item = _json_loads_maybe(item)
             if isinstance(item, dict):
-                items.append(item)
+                # If this dict looks like an item, keep it.
+                if any(k in item for k in ("code", "identifier", "dp_id", "dpId", "id", "value", "mode")):
+                    items.append(item)
+                # And still recurse, because services contain properties/actions/events.
+                items.extend(_extract_items({k: v for k, v in item.items() if k in ("properties", "actions", "events", "functions", "status", "model", "services")}))
         return items
+
     if not isinstance(payload, dict):
         return items
 
-    for key in ("functions", "status", "properties", "services", "model", "result"):
-        value = payload.get(key)
-        if isinstance(value, list):
-            for item in value:
-                if isinstance(item, dict):
-                    # Thing model can nest properties inside services.
-                    if key == "services" and isinstance(item.get("properties"), list):
-                        items.extend(x for x in item["properties"] if isinstance(x, dict))
-                    else:
-                        items.append(item)
-        elif isinstance(value, dict):
+    # A single item-shaped dict.
+    if any(k in payload for k in ("code", "identifier", "dp_id", "dpId")):
+        items.append(payload)
+
+    for key, value in payload.items():
+        if key in (
+            "functions",
+            "function",
+            "status",
+            "statuses",
+            "properties",
+            "property",
+            "actions",
+            "events",
+            "services",
+            "model",
+            "schema",
+            "result",
+            "data",
+            "dps",
+            "thingModel",
+            "thing_model",
+        ):
+            items.extend(_extract_items(value))
+        elif isinstance(value, str) and value.strip()[:1] in ("{", "["):
             items.extend(_extract_items(value))
     return items
 
@@ -176,13 +247,8 @@ class TuyaCloudApi:
             _LOGGER.debug("Tuya Cloud request failed for %s: %s", url, ex)
             return None
 
-    async def async_get_device_description(self, device_id: str) -> dict[str, Any]:
-        """Fetch all useful Cloud metadata for one device.
-
-        We intentionally call several Tuya endpoints because different projects/products
-        expose different shapes. The merger keeps raw payloads for diagnostics and a
-        normalised list for automatic entity generation.
-        """
+    async def async_get_device_description(self, device_id: str, product_id: str | None = None, category: str | None = None) -> dict[str, Any]:
+        """Fetch all useful Cloud metadata for one device."""
         endpoints = {
             "specification_iot03": f"/v1.0/iot-03/devices/{device_id}/specification",
             "functions_iot03": f"/v1.0/iot-03/devices/{device_id}/functions",
@@ -193,10 +259,30 @@ class TuyaCloudApi:
             "status_v10": f"/v1.0/devices/{device_id}/status",
             "thing_model_v20": f"/v2.0/cloud/thing/{device_id}/model",
             "thing_shadow_v20": f"/v2.0/cloud/thing/{device_id}/shadow/properties",
+            "thing_detail_v20": f"/v2.0/cloud/thing/{device_id}",
         }
+        if product_id:
+            endpoints.update(
+                {
+                    "product_functions_iot03": f"/v1.0/iot-03/products/{product_id}/functions",
+                    "product_specification_iot03": f"/v1.0/iot-03/products/{product_id}/specification",
+                    "product_details_iot03": f"/v1.0/iot-03/products/{product_id}",
+                }
+            )
+        if category:
+            endpoints.update(
+                {
+                    "category_functions_iot03": f"/v1.0/iot-03/categories/{category}/functions",
+                    "category_status_iot03": f"/v1.0/iot-03/categories/{category}/status",
+                }
+            )
+
         raw: dict[str, Any] = {}
         items: list[dict[str, Any]] = []
         statuses: dict[str, Any] = {}
+        by_code: dict[str, dict[str, Any]] = {}
+        by_dp: dict[str, dict[str, Any]] = {}
+
         for name, url in endpoints.items():
             result = await self._get_json_result(url)
             if result is None:
@@ -205,22 +291,33 @@ class TuyaCloudApi:
             extracted = _extract_items(result)
             for item in extracted:
                 norm = _normalise_spec_item(item)
-                if norm.get("code"):
-                    items.append(norm)
-                    if "value" in item:
-                        statuses[norm["code"]] = item.get("value")
-            # Some status endpoints return [{code,value}] directly.
+                code = norm.get("code")
+                dp_id = norm.get("dp_id")
+                if code:
+                    existing = by_code.get(code, {})
+                    merged = {**existing, **{k: v for k, v in norm.items() if v not in (None, "", {})}}
+                    by_code[code] = merged
+                    items.append(merged)
+                    if norm.get("value") is not None:
+                        statuses[code] = norm.get("value")
+                if dp_id:
+                    by_dp[dp_id] = {**by_dp.get(dp_id, {}), **norm}
+
+            # Status endpoints sometimes return [{code,value}] directly.
             if isinstance(result, list):
                 for item in result:
                     if isinstance(item, dict) and item.get("code") and "value" in item:
                         statuses[str(item["code"])] = item.get("value")
-        return {"raw": raw, "items": items, "status": statuses}
 
-    async def async_get_specifications(self, device_id: str) -> dict[str, Any]:
+        return {"raw": raw, "items": list(by_code.values()), "by_code": by_code, "by_dp": by_dp, "status": statuses}
+
+    async def async_get_specifications(self, device_id: str, product_id: str | None = None, category: str | None = None) -> dict[str, Any]:
         """Backward-compatible wrapper."""
-        description = await self.async_get_device_description(device_id)
+        description = await self.async_get_device_description(device_id, product_id, category)
         return {
             "functions": description.get("items", []),
+            "by_code": description.get("by_code", {}),
+            "by_dp": description.get("by_dp", {}),
             "status_values": description.get("status", {}),
             "raw": description.get("raw", {}),
         }

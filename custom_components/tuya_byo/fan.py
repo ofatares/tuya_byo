@@ -24,7 +24,6 @@ class TuyaBYOFan(CoordinatorEntity, FanEntity):
         self._attr_unique_id = f"{coordinator.device_id}_fan"
         self._attr_name = coordinator.name
         self._attr_device_info = coordinator.device_info
-        self._attr_extra_state_attributes = {"homekit_recommended": True}
         self.dp_switch = coordinator.find_dp(DP_FAN_SWITCH)
         self.dp_speed = coordinator.find_dp(DP_FAN_SPEED)
         self.dp_direction = coordinator.find_dp(DP_FAN_DIRECTION)

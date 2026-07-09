@@ -11,7 +11,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .cloud import TuyaCloudApi
 from .const import CONF_DEVICES, CONF_USER_ID, DOMAIN
-from .util import load_devices_file, private_ip, save_devices_file
+from .util import load_devices_file, private_ip, save_devices_file, save_diagnostics_file
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,7 +72,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         for dev_id, cloud_dev in api.device_list.items():
             cached = existing.get(dev_id, {})
-            specs = await api.async_get_specifications(dev_id)
+            product_id = cloud_dev.get("product_id") or cloud_dev.get("productId") or cached.get("product_id") or ""
+            category = cloud_dev.get("category") or cached.get("category") or ""
+            specs = await api.async_get_specifications(dev_id, product_id=product_id, category=category)
             cloud_mapping = _mapping_from_specs(specs)
             mapping = _merge_mappings(cached.get("mapping", {}), cloud_mapping)
             local_ip = private_ip(cloud_dev.get("ip")) or cached.get("ip", "")
@@ -82,9 +84,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "key": cloud_dev.get("local_key") or cached.get("key") or "",
                 "ip": local_ip,
                 "version": str(cached.get("version") or "3.5"),
-                "category": cloud_dev.get("category") or cached.get("category") or "",
+                "category": category,
                 "product_name": cloud_dev.get("product_name") or cloud_dev.get("productName") or cached.get("product_name") or "",
-                "product_id": cloud_dev.get("product_id") or cloud_dev.get("productId") or cached.get("product_id") or "",
+                "product_id": product_id,
                 "mapping": mapping,
                 "cloud_model": specs.get("functions", []),
                 "cloud_status": specs.get("status_values", {}),
@@ -92,6 +94,18 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             devices.append(device)
 
         save_devices_file(self.hass, devices)
+        save_diagnostics_file(self.hass, {
+            dev["id"]: {
+                "name": dev.get("name"),
+                "category": dev.get("category"),
+                "product_id": dev.get("product_id"),
+                "product_name": dev.get("product_name"),
+                "mapping": dev.get("mapping", {}),
+                "cloud_model": dev.get("cloud_model", []),
+                "cloud_status": dev.get("cloud_status", {}),
+            }
+            for dev in devices
+        })
         return devices
 
 
@@ -119,6 +133,25 @@ def _mapping_from_specs(specs: dict[str, Any]) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     if not isinstance(specs, dict):
         return result
+
+    # Prefer exact dp_id mappings returned by Cloud.
+    for source in (specs.get("by_dp") or {}).values():
+        if not isinstance(source, dict):
+            continue
+        dp_id = source.get("dp_id") or source.get("id") or source.get("dpId")
+        code = source.get("code") or source.get("identifier") or source.get("name")
+        if dp_id is None or code is None:
+            continue
+        values = source.get("values") or {}
+        result[str(dp_id)] = {
+            "code": str(code),
+            "name": source.get("name") or source.get("desc") or str(code),
+            "type": source.get("type", "Unknown"),
+            "mode": source.get("mode"),
+            "values": values if isinstance(values, dict) else {"raw": values},
+        }
+
+    # Backwards compatible path.
     for item in specs.get("functions") or []:
         if not isinstance(item, dict):
             continue
@@ -134,9 +167,11 @@ def _mapping_from_specs(specs: dict[str, Any]) -> dict[str, dict[str, Any]]:
             except Exception:  # noqa: BLE001
                 values = {"raw": values}
         result[str(dp_id)] = {
+            **result.get(str(dp_id), {}),
             "code": str(code),
             "name": item.get("name") or item.get("desc") or str(code),
             "type": item.get("type", "Unknown"),
+            "mode": item.get("mode"),
             "values": values if isinstance(values, dict) else {"raw": values},
         }
     return result

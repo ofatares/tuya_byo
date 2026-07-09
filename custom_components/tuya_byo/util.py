@@ -26,6 +26,10 @@ def storage_path(hass: HomeAssistant) -> str:
     return hass.config.path(STORAGE_DIR, DEVICES_FILE)
 
 
+def diagnostics_path(hass: HomeAssistant) -> str:
+    return hass.config.path(STORAGE_DIR, "diagnostics.json")
+
+
 def load_devices_file(hass: HomeAssistant) -> list[dict[str, Any]]:
     path = Path(storage_path(hass))
     if not path.exists():
@@ -41,3 +45,14 @@ def save_devices_file(hass: HomeAssistant, devices: list[dict[str, Any]]) -> Non
     path = Path(storage_path(hass))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(devices, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def save_diagnostics_file(hass: HomeAssistant, data: dict[str, Any]) -> None:
+    """Save non-sensitive Cloud/model diagnostics.
+
+    This intentionally omits local keys and API credentials but keeps raw Cloud
+    responses so we can improve capability mapping without Smart Life trial/error.
+    """
+    path = Path(diagnostics_path(hass))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False, default=str), encoding="utf-8")

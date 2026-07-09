@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.16.0
+## 0.18.0
 
-- Improve AC power state refresh by avoiding stale TinyTuya instances.
-- Hide Celsius/Fahrenheit conversion select from normal UI.
-- Improve labels for swing and health capabilities.
-- Keep the clean Tuya BYO domain and icons.
+- Adds expanded Tuya Cloud model/specification/status collection.
+- Parses nested Thing Model JSON strings returned by Tuya Cloud.
+- Saves non-sensitive diagnostics to `/config/tuya_byo/diagnostics.json`.
+- Improves Cloud mapping by merging dp_id, code, values, mode and status metadata.
+- Keeps the stable local TinyTuya transport and conservative entity generation.
+
