@@ -65,14 +65,9 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
 
     def _set_dp_sync(self, dp: str | int, value: Any):
         dev = self._ensure_device_sync()
-        dp_int = int(dp)
-        # TinyTuya supports both methods depending on version/protocol.
-        # set_status is the canonical Tuya DP write; set_value is kept as fallback.
-        if hasattr(dev, "set_status"):
-            result = dev.set_status(value, switch=dp_int)
-        else:
-            result = dev.set_value(dp_int, value)
-        _LOGGER.debug("Tuya BYO set DP %s=%s on %s -> %s", dp, value, self.device_id, result)
+        # TinyTuya's reliable command path for DPS is set_status(value, switch=dp).
+        # set_value may update a cached payload but not all Tuya 3.5 HVAC modules act on it.
+        result = dev.set_status(value, switch=int(dp))
         return result
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -89,7 +84,10 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
     async def async_set_dp(self, dp: str | int, value: Any) -> None:
         async with self._lock:
             await self.hass.async_add_executor_job(self._set_dp_sync, dp, value)
-        await self.async_request_refresh()
+            # Force a fresh status read immediately after writing.
+            status = await self.hass.async_add_executor_job(self._status_sync)
+        dps = status.get("dps", status) if isinstance(status, dict) else {}
+        self.async_set_updated_data({str(k): v for k, v in (dps or {}).items()})
 
     def find_dp(self, *codes: str) -> str | None:
         wanted = set(codes)
