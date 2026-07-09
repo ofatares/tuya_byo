@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.21.0
+
+- Fix HVAC command writes using fresh TinyTuya device per call.
+- Add robust DP write fallback: set_status, set_value and multi-value where available.
+- Avoid stale local state after power/mode changes.
+
+
 ## 0.20.0
 
 - Fix HVAC power semantics: OFF writes only the power DP and mode is no longer treated as ON.

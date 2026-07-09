@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -50,25 +51,83 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
             "sw_version": str(self.version),
         }
 
-    def _ensure_device_sync(self):
-        """Create TinyTuya device inside executor only."""
-        if self._device is None:
-            dev = tinytuya.Device(self.device_id, self.host, self.key)
-            dev.set_version(self.version)
-            dev.set_socketPersistent(False)
-            self._device = dev
-        return self._device
+    def _make_device_sync(self):
+        """Create a fresh TinyTuya device inside executor only.
+
+        We intentionally do not cache the TinyTuya object. Some Tuya 3.5 HVAC
+        modules keep stale state or ignore writes when the same object/socket is
+        reused. A fresh object per command/status is slower, but far more reliable
+        and avoids Home Assistant event-loop blocking warnings.
+        """
+        dev = tinytuya.Device(self.device_id, self.host, self.key)
+        dev.set_version(self.version)
+        dev.set_socketPersistent(False)
+        return dev
 
     def _status_sync(self):
-        dev = self._ensure_device_sync()
+        dev = self._make_device_sync()
         return dev.status()
 
+    @staticmethod
+    def _looks_success(result: Any) -> bool:
+        """Best-effort success detection for TinyTuya command responses."""
+        if result is None:
+            return False
+        if isinstance(result, dict):
+            if result.get("Error") or result.get("error"):
+                return False
+            if result.get("success") is True:
+                return True
+            if result.get("result") is True:
+                return True
+            # TinyTuya often returns a dict with dps/devId on success.
+            if "dps" in result or "devId" in result or "dps" in str(result):
+                return True
+        return True
+
     def _set_dp_sync(self, dp: str | int, value: Any):
-        dev = self._ensure_device_sync()
-        # TinyTuya's reliable command path for DPS is set_status(value, switch=dp).
-        # set_value may update a cached payload but not all Tuya 3.5 HVAC modules act on it.
-        result = dev.set_status(value, switch=int(dp))
-        return result
+        """Write a DP using all safe TinyTuya command paths.
+
+        Different Tuya firmwares react differently to TinyTuya helpers. For HVAC
+        devices in particular, set_status() can be ignored on some modules while
+        set_value() works, or vice versa. We try the most direct command path and
+        fall back without raising until all paths fail.
+        """
+        dp_int = int(dp)
+        errors: list[str] = []
+
+        # Path 1: TinyTuya status command.
+        try:
+            dev = self._make_device_sync()
+            result = dev.set_status(value, switch=dp_int)
+            if self._looks_success(result):
+                return result
+            errors.append(f"set_status returned {result!r}")
+        except Exception as ex:  # noqa: BLE001
+            errors.append(f"set_status failed: {ex}")
+
+        # Path 2: TinyTuya value command.
+        try:
+            dev = self._make_device_sync()
+            result = dev.set_value(dp_int, value)
+            if self._looks_success(result):
+                return result
+            errors.append(f"set_value returned {result!r}")
+        except Exception as ex:  # noqa: BLE001
+            errors.append(f"set_value failed: {ex}")
+
+        # Path 3: multi-value command if present in this TinyTuya version.
+        try:
+            dev = self._make_device_sync()
+            if hasattr(dev, "set_multiple_values"):
+                result = dev.set_multiple_values({dp_int: value})
+                if self._looks_success(result):
+                    return result
+                errors.append(f"set_multiple_values returned {result!r}")
+        except Exception as ex:  # noqa: BLE001
+            errors.append(f"set_multiple_values failed: {ex}")
+
+        raise RuntimeError("; ".join(errors))
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
