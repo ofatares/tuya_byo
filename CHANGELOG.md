@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.32.0
+
+- Fix: devices without a fixed/reserved local IP (like "Ventilador", which was logging repeated `Unable to find device on network (specify IP address)`) relied on TinyTuya re-running its full UDP broadcast discovery scan on every single poll -- a slow (several-second) operation that doesn't always catch the device's announcement, causing exactly the "loses communication for a while, then comes back on its own" pattern reported. The discovered address is now cached after the first successful scan, so normal polls connect directly instead of re-scanning every time; if a poll or write ever fails, one rescan is forced automatically before giving up, self-healing from DHCP address changes without needing to reconfigure anything.
+- Note: this doesn't replace the fix for the underlying cause -- give devices without a configured IP a DHCP reservation on your router so they stop changing address at all, which is both faster (no scan, ever) and more reliable than depending on rediscovery.
+
 ## 0.31.0
 
 - Add: bundled a `custom_components/tuya_byo/brand/` folder with `icon.png`/`icon@2x.png` (square badge) and `logo.png`/`logo@2x.png` (badge + wordmark), cropped and resized from the project's existing artwork to meet Home Assistant's brand image spec (square 256/512 icon, landscape logo capped at 256/512px on the short side, transparent background). Since HA 2026.3, custom integrations can ship these locally and HA's own `brands` system integration serves them automatically in Settings > Devices & Services (both the "Add integration" search and the configured integration's card) -- no PR to the external home-assistant/brands repository needed. Requires the user's HA Core to be 2026.3.0 or newer; on older Core versions this silently has no effect (falls back to the generic icon, no error).

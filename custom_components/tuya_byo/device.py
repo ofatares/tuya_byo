@@ -42,6 +42,13 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
         self.cloud_status = config.get("cloud_status") or {}
         self._device = None
         self._lock = asyncio.Lock()
+        # Devices without a fixed/reserved IP (or whose DHCP lease changed)
+        # rely on Tuya's UDP broadcast discovery to find their current
+        # address. That scan is slow (several seconds) and occasionally
+        # misses the device's announcement, so the result is cached here and
+        # only re-scanned when the cached address stops working, instead of
+        # discovering from scratch on every single poll.
+        self._cached_host: str | None = self.host
         # Remembers which write path (set_status/set_value/set_multiple_values)
         # actually worked last time for this device, so subsequent writes try
         # it first instead of always attempting them in a fixed order.
@@ -61,7 +68,40 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
             "sw_version": str(self.version),
         }
 
-    def _make_device_sync(self):
+    def _resolve_host_sync(self, force_rescan: bool = False) -> str | None:
+        """Return a usable local IP for this device.
+
+        If we already have one cached (from config, or a previous scan) and
+        aren't being asked to force a rescan, use it directly -- this is the
+        common, fast path. Otherwise, run Tuya's UDP broadcast discovery for
+        this specific device_id (tinytuya.find_device), which takes several
+        seconds and isn't always caught on the first try, so it's only done
+        when actually necessary: no cached address yet, or the cached one
+        just failed to respond (DHCP lease change, device moved networks,
+        router reboot, etc).
+        """
+        if self._cached_host and not force_rescan:
+            return self._cached_host
+        _LOGGER.debug(
+            "%s: scanning local network for device %s (%s)",
+            self.name,
+            self.device_id,
+            "forced rescan" if force_rescan else "no cached address",
+        )
+        try:
+            found = tinytuya.find_device(dev_id=self.device_id)
+        except Exception as ex:  # noqa: BLE001
+            _LOGGER.debug("%s: discovery scan failed: %s", self.name, ex)
+            found = None
+        ip = found.get("ip") if isinstance(found, dict) else None
+        if ip:
+            _LOGGER.debug("%s: discovered at %s", self.name, ip)
+        else:
+            _LOGGER.debug("%s: not found via broadcast discovery", self.name)
+        self._cached_host = ip
+        return ip
+
+    def _make_device_sync(self, force_rescan: bool = False):
         """Create a fresh TinyTuya device inside executor only.
 
         We intentionally do not cache the TinyTuya object. Some Tuya 3.5 HVAC
@@ -69,14 +109,31 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
         reused. A fresh object per command/status is slower, but far more reliable
         and avoids Home Assistant event-loop blocking warnings.
         """
-        dev = tinytuya.Device(self.device_id, self.host, self.key)
+        host = self._resolve_host_sync(force_rescan=force_rescan)
+        if not host:
+            raise RuntimeError(
+                f"Unable to find {self.name} ({self.device_id}) on the network"
+            )
+        dev = tinytuya.Device(self.device_id, host, self.key)
         dev.set_version(self.version)
         dev.set_socketPersistent(False)
         return dev
 
     def _status_sync(self):
-        dev = self._make_device_sync()
-        return dev.status()
+        try:
+            dev = self._make_device_sync()
+            return dev.status()
+        except Exception as ex:  # noqa: BLE001
+            # The cached/configured address may be stale. Force one rescan
+            # and retry before giving up -- self-heals from IP changes
+            # instead of requiring the user to notice and reconfigure.
+            _LOGGER.debug(
+                "%s: status poll failed (%s), forcing a rescan and retrying once",
+                self.name,
+                ex,
+            )
+            dev = self._make_device_sync(force_rescan=True)
+            return dev.status()
 
     @staticmethod
     def _looks_success(result: Any) -> bool:
@@ -142,29 +199,47 @@ class TuyaBYODevice(DataUpdateCoordinator[dict[str, Any]]):
         always working through set_status -> set_value -> set_multiple_values.
         """
         dp_int = int(dp)
-        errors: list[str] = []
-        dev = self._make_device_sync()
-        attempts = self._write_path_attempts(dev, dp_int, value)
 
-        first = True
-        for name, call in attempts.items():
-            if call is None:
-                continue
-            if not first:
-                time.sleep(0.3)
-                dev = self._make_device_sync()
-                call = self._write_path_attempts(dev, dp_int, value)[name]
-            first = False
-            try:
-                result = call()
-                if self._looks_success(result):
-                    self._preferred_write_path = name
-                    return result
-                errors.append(f"{name} returned {result!r}")
-            except Exception as ex:  # noqa: BLE001
-                errors.append(f"{name} failed: {ex}")
+        def _try_all_paths(force_rescan: bool = False) -> tuple[Any, list[str]]:
+            errors: list[str] = []
+            dev = self._make_device_sync(force_rescan=force_rescan)
+            attempts = self._write_path_attempts(dev, dp_int, value)
+            first = True
+            for name, call in attempts.items():
+                if call is None:
+                    continue
+                if not first:
+                    time.sleep(0.3)
+                    dev = self._make_device_sync()
+                    call = self._write_path_attempts(dev, dp_int, value)[name]
+                first = False
+                try:
+                    result = call()
+                    if self._looks_success(result):
+                        self._preferred_write_path = name
+                        return result, errors
+                    errors.append(f"{name} returned {result!r}")
+                except Exception as ex:  # noqa: BLE001
+                    errors.append(f"{name} failed: {ex}")
+            return None, errors
 
-        raise RuntimeError("; ".join(errors))
+        result, errors = _try_all_paths()
+        if result is not None:
+            return result
+
+        # Every write path failed -- the cached/configured address may have
+        # gone stale (DHCP change, etc). Force one rescan and retry the full
+        # set of write paths once more before giving up.
+        _LOGGER.debug(
+            "%s: all write paths failed (%s), forcing a rescan and retrying once",
+            self.name,
+            "; ".join(errors),
+        )
+        result, errors2 = _try_all_paths(force_rescan=True)
+        if result is not None:
+            return result
+
+        raise RuntimeError("; ".join(errors + errors2))
 
     def _set_dps_sync(self, values: dict[int, Any]):
         """Write several DPs in a single local command when possible.
